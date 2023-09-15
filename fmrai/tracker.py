@@ -2,17 +2,17 @@ import contextlib
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Union
+from typing import Union, Dict
 
 import networkx as nx
-import reai.bert.base
 import torch
-import reai.bert.base
 from torch import nn, Tensor
 from torch.nn import Parameter
 
-from mldbg.instrument import instrumentation_scope, TensorProxy, add_new_tensor_callback, \
+from fmrai.instrument import instrumentation_scope, TensorProxy, add_new_tensor_callback, \
     unwrap_proxy, get_current_instrumentation_state
+
+import reai.bert.base
 
 
 @dataclass
@@ -79,11 +79,20 @@ class ParamNode(GraphNode):
         return f'{self.label} @ {id(self.param):08x}'
 
 
-class GradientGraph:
+@dataclass
+class ActivationMap:
+    data: Dict[int, Tensor]
+
+
+@dataclass
+class ActivationGraph:
     g: nx.DiGraph
 
 
-class GradientTracker:
+class ActivationTracker:
+    """
+    Tracks activations of a computation graph.
+    """
     def __init__(self):
         self._next_ordinal = 0
 
@@ -108,7 +117,7 @@ class GradientTracker:
         if getattr(tensor, 'grad_fn', None) is not None:
             self._grad_fn_to_tensor[tensor.grad_fn] = tensor
 
-    def build_graph(self, output: TensorProxy):
+    def build_graph(self, output: TensorProxy) -> ActivationGraph:
         g = nx.DiGraph()
 
         def visit_grad_fn(f: torch.autograd.Function):
@@ -171,15 +180,16 @@ class GradientTracker:
             return node
 
         visit_tensor(output)
-        return g
+        return ActivationGraph(g=g)
 
-    def build_map(self):
-        return dict(self._ordinal_to_tensor)
+    def build_map(self) -> ActivationMap:
+        data = dict(self._ordinal_to_tensor)
+        return ActivationMap(data=data)
 
 
 @contextlib.contextmanager
 def tracker_scope():
-    tracker = GradientTracker()
+    tracker = ActivationTracker()
     try:
         with instrumentation_scope():
             tracker.register_callbacks()
@@ -230,26 +240,44 @@ def test_my_bert():
 
 
 def test_gradient_tracker():
+    torch.manual_seed(42)
+    ref_att = nn.MultiheadAttention(embed_dim=4, num_heads=1, batch_first=True)
+
+    snapshots = []
+
     with tracker_scope() as tracker:
         torch.manual_seed(42)
+        # ref_att = nn.MultiheadAttention(embed_dim=4, num_heads=1, batch_first=True)
+        # att = ref_att
+        att = reai.bert.base.BaseMultiHeadAttention(embed_dim=4, num_heads=1)
+        att.copy_weights_from_standard_impl(ref_att)
 
-        x = torch.randn((1, 4, 4), requires_grad=True)
-        print('x', type(x), x)
+        optimizer = torch.optim.Adam(att.parameters())
 
-        # att = BaseMultiHeadAttention(embed_dim=4, num_heads=1)
-        att = nn.MultiheadAttention(embed_dim=4, num_heads=1, batch_first=True)
-        y = att(x, x, x)[0]
-        clf = nn.Linear(4, 1)
-        z = clf(y).sum()
+        for i in range(1):
+            torch.manual_seed(42)
+            x = torch.randn((1, 4, 4), requires_grad=True)
+            y = att(x, x, x)[0]
 
-        # z = SimpleModel()(x)
-        # print('z', type(z), z)
+            torch.manual_seed(42)
+            clf = nn.Linear(4, 1)
+            z = clf(y).sum()
 
-        graph = tracker.build_graph(z)
+            z.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
-    # export graph to svg
-    nx.drawing.nx_pydot.write_dot(graph, 'test.dot')
-    subprocess.check_call(['dot', '-Tsvg', 'test.dot', '-o', 'test.svg'])
+            if i % 50 == 0:
+                snap = tracker.build_map()
+                print('snap', len(snap.data))
+                print(z)
+                snapshots.append(snap)
+
+            tracker.step()
+
+    # # export graph to svg
+    # nx.drawing.nx_pydot.write_dot(graph, 'test.dot')
+    # subprocess.check_call(['dot', '-Tsvg', 'test.dot', '-o', 'test.svg'])
 
     # dot = torchviz.make_dot(z, show_attrs=True, show_saved=True)
     # with open('test.svg', 'w') as f:
@@ -270,6 +298,6 @@ def test_track_operation():
 
 
 if __name__ == '__main__':
-    # test_gradient_tracker()
+    test_gradient_tracker()
     # test_track_operation()
-    test_my_bert()
+    # test_my_bert()

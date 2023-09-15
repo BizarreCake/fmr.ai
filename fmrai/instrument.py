@@ -47,8 +47,6 @@ _SHOULD_NOT_WRAP = [
 
 class TensorProxyMeta(type):
     def __new__(cls, name, bases, attrs):
-        print(dir(Tensor))
-
         for attr_name in dir(Tensor):
             if attr_name in _SHOULD_NOT_WRAP:
                 continue
@@ -97,7 +95,6 @@ def wrap_in_proxy(t: Tensor, *, origin: Optional['TensorOrigin'] = None):
         callback(proxy)
 
     return proxy
-
 
 
 def make_proxy_function(fn, *, unwrap_args=True):
