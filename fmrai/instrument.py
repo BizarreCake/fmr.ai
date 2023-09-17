@@ -1,7 +1,7 @@
 import contextlib
 import inspect
 from dataclasses import dataclass
-from typing import Union, Any, Dict, Callable, Optional, List
+from typing import Union, Any, Dict, Callable, Optional, List, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -14,6 +14,7 @@ class InstrumentationState:
     seen_modules: List[nn.Module]
     param_to_name: Dict[nn.Parameter, str]
     track_origin: bool = True
+    fmr: Optional['Fmrai'] = None
     # next_ordinal: int = 0
 
     # def get_next_ordinal(self) -> int:
@@ -34,6 +35,12 @@ def get_current_instrumentation_state():
 
 def add_new_tensor_callback(fn):
     get_current_instrumentation_state().new_tensor_callbacks.append(fn)
+
+
+def remove_new_tensor_callback(fn):
+    state = get_current_instrumentation_state()
+    if fn in state.new_tensor_callbacks:
+        state.new_tensor_callbacks.remove(fn)
 
 
 _SHOULD_NOT_WRAP = [
@@ -150,6 +157,7 @@ class TensorProxy(metaclass=TensorProxyMeta):
         self._wrapped = wrapped
         # self._ordinal = ordinal
         self._origin = origin
+        self._saved_grad_fn = wrapped.grad_fn
 
     def __getattr__(self, item):
         return getattr(self._wrapped, item)
@@ -160,6 +168,7 @@ _INSTRUMENTABLE_TORCH_FUNCTIONS = [
     'torch.matmul',
     'torch.softmax',
     'torch.bmm',
+    'torch.tanh',
 
     'torch.nn.functional.linear',
     'torch.nn.functional.softmax',
@@ -167,7 +176,9 @@ _INSTRUMENTABLE_TORCH_FUNCTIONS = [
     'torch.nn.functional.dropout',
     'torch.nn.functional.layer_norm',
     'torch.nn.functional.relu',
+    'torch.nn.functional.gelu',
     'torch.nn.functional.cross_entropy',
+    'torch.nn.functional.embedding',
 ]
 
 
@@ -255,7 +266,7 @@ def instrumentation_scope(*, track_origin=True):
 
     _CURRENT_INSTRUMENTATION_STATE = state
     try:
-        yield
+        yield state
     finally:
         deinstrument_pytorch(state.original_functions)
         _CURRENT_INSTRUMENTATION_STATE = None
