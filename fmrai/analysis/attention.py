@@ -1,5 +1,9 @@
 from typing import List
 
+import numpy as np
+import torch
+from torch import Tensor
+
 from pydantic import BaseModel
 
 from fmrai.tracker import ComputationMap, TensorId, LazyComputationMap, OrdinalTensorId
@@ -37,6 +41,65 @@ def extract_attention_values(
         ))
 
     return extractions
+
+
+def _compute_attention_head_divergence_matrix_one_instance(
+    all_heads_tensor: Tensor,
+):
+    assert len(all_heads_tensor.size()) == 3
+    num_heads = all_heads_tensor.size(0)
+
+    # smooth out tensor to prevent issues with logarithm later on
+    seq_len = all_heads_tensor.size(1)
+    all_heads_tensor = 0.001 / seq_len + all_heads_tensor * 0.999
+
+    js_matrix = np.zeros((num_heads, num_heads))
+
+    for head in range(num_heads):
+        head_tensor = all_heads_tensor[head, ...].unsqueeze(0)
+        head_tensor = 0.001 / seq_len + head_tensor * 0.999
+
+        # compute jensen-shannon distance between head and all other heads simultaneously
+
+        m = (head_tensor + all_heads_tensor) / 2
+        js = -(head_tensor * torch.log2(m / head_tensor) + all_heads_tensor * torch.log2(m / all_heads_tensor)) / 2
+
+        per_head_js = js.sum(dim=-1).sum(dim=-1)
+        js_matrix[head] += per_head_js.cpu().numpy()
+
+    return js_matrix
+
+
+def compute_attention_head_divergence_matrix(
+        batch_cmap: ComputationMap,
+        attention_tensors: List[TensorId],
+) -> np.ndarray:
+    with torch.no_grad():
+        # gather all tensors and check that they have the same shape
+        all_tensors = []
+        for tensor_id in attention_tensors:
+            tensor = batch_cmap.get(tensor_id)
+
+            if all_tensors:
+                assert (all_tensors[-1].size() == tensor.size())
+
+            all_tensors.append(tensor)
+
+        # concatenate all tensors
+        big_tensor = torch.concat(all_tensors, dim=1)  # concatentate along num_heads dimension
+
+        # compute per instance and sum
+        instance_count = all_tensors[0].size(0)
+        return np.sum(
+            np.concatenate(
+                [
+                    np.expand_dims(_compute_attention_head_divergence_matrix_one_instance(big_tensor[i, ...]), 0)
+                    for i in range(instance_count)
+                ],
+                axis=0,
+            ),
+            axis=0
+        )
 
 
 def test_extract_attention():

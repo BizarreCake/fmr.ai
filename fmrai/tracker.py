@@ -6,7 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Union, Dict, Optional, Callable, Any
+from typing import Union, Dict, Optional, Callable, Any, Iterable
 
 import networkx as nx
 import reai.bert.base
@@ -295,8 +295,12 @@ class ComputationTracker:
 
         return ComputationGraph(g=g)
 
-    def build_map(self) -> 'ComputationMap':
-        data = dict(self._id_to_tensor)
+    def build_map(self, *, tensors: Optional[Iterable[TensorId]] = None) -> 'ComputationMap':
+        if tensors:
+            data = {tensor_id: unwrap_proxy(self._id_to_tensor.get(tensor_id)) for tensor_id in tensors}
+        else:
+            data = {tensor_id: unwrap_proxy(tensor) for tensor_id, tensor in self._id_to_tensor.items()}
+
         return EagerComputationMap(data=data)
 
 

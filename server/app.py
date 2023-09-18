@@ -94,7 +94,7 @@ def get_tensor_image(tensor_id: str, time_step: int):
 def analyze_text_predict(text: str = Body(embed=True)):
     agent_addr = find_agent_host()
     r = requests.post(
-        f'{agent_addr}/predict/text',
+        f'{agent_addr}/predict/text/one',
         json={
             'text': text,
         }

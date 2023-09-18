@@ -21,8 +21,8 @@ def init_model():
     do_init_model(agent_state)
 
 
-@app.post('/predict/text')
-def predict_text():
+@app.post('/predict/text/one')
+def predict_text_one():
     data = bottle.request.json
     text = data['text']
 
@@ -37,3 +37,8 @@ def predict_text():
         'token_ids': result.result.token_ids,
         'token_names': result.result.token_names,
     }
+
+
+@app.post('/predict/text/many')
+def predict_text_many():
+    pass

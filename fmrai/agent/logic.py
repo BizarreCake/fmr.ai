@@ -31,8 +31,7 @@ def do_predict_text(agent_state: AgentState, text: str) -> TextPredictionResult:
 
     with fmr.track_computations() as tracker:
         with torch.no_grad():
-            result = agent_state.api.predict_text(text)
-
+            result = agent_state.api.predict_text_one(text)
         mp = tracker.build_map()
         print('mp', len(mp.data))
 

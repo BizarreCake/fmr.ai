@@ -22,7 +22,7 @@ function MainAppBar() {
         <Container maxWidth="xl">
           <Toolbar disableGutters>
             <Typography variant="h6" sx={{mr: 5}}>
-              fMRAI
+              fmr.ai
             </Typography>
           </Toolbar>
         </Container>

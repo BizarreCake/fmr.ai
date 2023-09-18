@@ -11,7 +11,7 @@ class Fmrai:
         self._computation_tracker: Optional[ComputationTracker] = None
         self._models = []
 
-    def add_model(self, model, *, log_parameters=True):
+    def add_model(self, model, *, log_parameters=False):
         self._models.append(model)
         log_model(model)
         if log_parameters:

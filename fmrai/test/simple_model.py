@@ -1,15 +1,19 @@
 import os
 import shutil
 import sys
+from typing import Optional, Iterable, List
 
-from torch import nn
 import torch
+from torch import nn
 
 from fmrai import fmrai
 from fmrai.agent import run_agent, AgentAPI
-from fmrai.agent.api import AgentTextPrediction
+from fmrai.agent.api import AgentTextPrediction, AgentDatasetList, AgentDatasetEntry
+from fmrai.analysis.attention import compute_attention_head_divergence_matrix
+from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import Fmrai
-from fmrai.logging import get_log_dir, log_model_parameters
+from fmrai.logging import get_log_dir
+from fmrai.tracker import OrdinalTensorId, TensorId
 
 
 class SimpleModel(nn.Module):
@@ -27,7 +31,6 @@ class SimpleModel(nn.Module):
 
 
 def pasten():
-    import reai.bert.base
     from transformers import AutoModel
 
     shutil.rmtree(get_log_dir(), ignore_errors=True)
@@ -85,8 +88,12 @@ def create_simple_model_api():
         def predict_zero(self):
             return model(torch.zeros((1, 512)))
 
-        def predict_text(self, text: str):
-            # with torch.no_grad():
+        def predict_text(
+                self,
+                texts: List[str],
+                *,
+                track_tensors: Optional[Iterable[TensorId]] = None
+        ) -> AgentTextPrediction:
             x = torch.randn((1, 512))
             model(x)
 
@@ -108,14 +115,28 @@ def create_bert_api():
                 attention_mask=torch.full((1, 512), 1, dtype=torch.long),
             ).pooler_output
 
-        def predict_text(self, text: str):
-            tokenized = tokenizer(text, return_tensors='pt')
+        def predict_text_many(self, texts: List[str]):
+            tokenized = tokenizer(texts, return_tensors='pt', padding='longest')
+            model(**tokenized)
+
+        def predict_text_one(self, text: str):
+            tokenized = tokenizer([text], return_tensors='pt')
             model(**tokenized)
 
             return AgentTextPrediction(
                 token_ids=tokenized['input_ids'].squeeze().tolist(),
                 token_names=tokenizer.convert_ids_to_tokens(tokenized['input_ids'].squeeze().tolist()),
             )
+
+        def list_datasets(self) -> AgentDatasetList:
+            return AgentDatasetList(
+                datasets=[
+                    AgentDatasetEntry(name='glue/sst2')
+                ]
+            )
+
+        def load_dataset(self, name: str):
+            pass
 
     return BertAgentAPI()
 
@@ -128,8 +149,60 @@ def pasten_agent():
         run_agent(api)
 
 
+def pasten_specific_tracking():
+    from transformers import AutoModel
+
+    with fmrai() as fmr:
+        fmr: Fmrai
+
+        model = AutoModel.from_pretrained('bert-base-uncased')
+        fmr.add_model(model)
+
+        with fmr.track_computations() as tracker:
+            y = model(torch.randint(0, 7, (1, 64)))
+            g = tracker.build_graph(y.pooler_output).make_nice()
+
+        mha = list(find_multi_head_attention(g))
+        print(mha)
+
+        with fmr.track_computations() as tracker:
+            model(torch.randint(0, 7, (1, 64)))
+            mp = tracker.build_map(tensors=[
+                instance.softmax_value.tensor_id
+                for instance in mha
+            ])
+
+        print(mp)
+
+
+def pasten_attention_head_matrix():
+    with fmrai() as fmr:
+        fmr: Fmrai
+
+        api = create_bert_api()
+
+        attention_tensor_ids = [
+            OrdinalTensorId(ordinal=21),
+            OrdinalTensorId(ordinal=50),
+        ]
+
+        with fmr.track_computations() as tracker:
+            with torch.no_grad():
+                api.predict_text_many(
+                    ['hello world', 'wassup?'],
+                )
+
+            batch_cmap = tracker.build_map(tensors=attention_tensor_ids)
+
+        js_matrix = compute_attention_head_divergence_matrix(batch_cmap, attention_tensor_ids)
+        return js_matrix
+
+
+
 if __name__ == '__main__':
-    if sys.argv and sys.argv[1] == '--agent':
+    if len(sys.argv) >= 2 and sys.argv[1] == '--agent':
         pasten_agent()
     else:
-        pasten()
+        # pasten()
+        # pasten_specific_tracking()
+        pasten_attention_head_matrix()

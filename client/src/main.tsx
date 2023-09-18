@@ -8,6 +8,8 @@ import ViewComputationGraphPage from "./pages/ViewComputationGraph.tsx";
 import ViewTensorPage from "./pages/ViewTensor.tsx";
 import AnalyzeTextPage from "./pages/AnalyzeText.tsx";
 import ViewModelPage from "./pages/ViewModel.tsx";
+import HomePage from './pages/Home.tsx';
+import AnalyzeAttentionPage from "./pages/AnalyzeAttention.tsx";
 
 const queryClient = new QueryClient();
 
@@ -17,6 +19,10 @@ const router = createBrowserRouter([
     path: '/',
     element: <MainLayout />,
     children: [
+      {
+        path: '/home',
+        element: <HomePage />,
+      },
       {
         path: '/model',
         element: <ViewModelPage />,
@@ -30,7 +36,11 @@ const router = createBrowserRouter([
         element: <ViewTensorPage />,
       },
       {
-        path: '/analyze/text',
+        path: '/analyze/global/attention',
+        element: <AnalyzeAttentionPage />,
+      },
+      {
+        path: '/analyze/local/text',
         element: <AnalyzeTextPage />,
       }
     ]

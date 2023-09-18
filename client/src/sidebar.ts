@@ -25,6 +25,10 @@ export const MAIN_SIDEBAR: SidebarConfig = {
       title: 'General',
       items: [
         {
+          text: 'Home',
+          path: '/home',
+        },
+        {
           text: 'Model',
           path: '/model',
           children: [
@@ -37,11 +41,20 @@ export const MAIN_SIDEBAR: SidebarConfig = {
       ],
     },
     {
-      title: 'Instance',
+      title: 'Global',
+      items: [
+        {
+          text: 'Attention',
+          path: '/analyze/global/attention',
+        },
+      ]
+    },
+    {
+      title: 'Local',
       items: [
         {
           text: 'Analyze Text',
-          path: '/analyze/text',
+          path: '/analyze/local/text',
         },
       ]
     }
