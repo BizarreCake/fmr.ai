@@ -46,6 +46,12 @@ export const MAIN_SIDEBAR: SidebarConfig = {
         {
           text: 'Attention',
           path: '/analyze/global/attention',
+          children: [
+            {
+              text: 'Attention Head Clustering',
+              path: '/analyze/global/attention/head-clustering',
+            },
+          ],
         },
       ]
     },

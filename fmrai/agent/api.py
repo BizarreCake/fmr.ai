@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import List, Optional, Iterable
+from typing import List, Optional, Iterable, Tuple
 from pydantic import BaseModel
+from datasets import Dataset
 
 from fmrai.tracker import TensorId
 
@@ -10,13 +11,14 @@ class AgentTextPrediction(BaseModel):
     token_names: List[str]
 
 
-class AgentDatasetEntry(BaseModel):
+class AgentDatasetInfo(BaseModel):
     name: str
+    text_column: Optional[str] = None
     description: Optional[str] = None
 
 
 class AgentDatasetList(BaseModel):
-    datasets: List[AgentDatasetEntry]
+    datasets: List[AgentDatasetInfo]
 
 
 class AgentAPI:
@@ -30,11 +32,20 @@ class AgentAPI:
     def predict_text_one(self, text: str) -> AgentTextPrediction:
         raise NotImplementedError()
 
-    def predict_text_many(self, texts: List[str]) -> AgentTextPrediction:
+    def predict_text_bunch(self, texts: List[str]) -> AgentTextPrediction:
+        raise NotImplementedError()
+
+    def predict_text_many(
+            self,
+            dataset: Dataset,
+            text_column: str,
+            *,
+            limit: Optional[int] = None
+    ) -> AgentTextPrediction:
         raise NotImplementedError()
 
     def list_datasets(self) -> AgentDatasetList:
         return AgentDatasetList(datasets=[])
 
-    def load_dataset(self, name: str):
+    def load_dataset(self, name: str) -> Optional[Tuple[Dataset, AgentDatasetInfo]]:
         return None

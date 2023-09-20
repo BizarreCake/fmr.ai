@@ -1,19 +1,22 @@
 import os
 import shutil
 import sys
-from typing import Optional, Iterable, List
+from typing import Optional, Iterable, List, Tuple
 
 import torch
 from torch import nn
 
 from fmrai import fmrai
 from fmrai.agent import run_agent, AgentAPI
-from fmrai.agent.api import AgentTextPrediction, AgentDatasetList, AgentDatasetEntry
+from fmrai.agent.api import AgentTextPrediction, AgentDatasetList, AgentDatasetInfo
 from fmrai.analysis.attention import compute_attention_head_divergence_matrix
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import Fmrai
 from fmrai.logging import get_log_dir
 from fmrai.tracker import OrdinalTensorId, TensorId
+
+import datasets
+from datasets import Dataset
 
 
 class SimpleModel(nn.Module):
@@ -108,6 +111,13 @@ def create_bert_api():
     model = AutoModel.from_pretrained('bert-base-uncased')
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
+    dataset_infos = [
+        AgentDatasetInfo(
+            name='glue/sst2',
+            text_column='sentence',
+        )
+    ]
+
     class BertAgentAPI(AgentAPI):
         def predict_zero(self):
             return model(
@@ -115,8 +125,13 @@ def create_bert_api():
                 attention_mask=torch.full((1, 512), 1, dtype=torch.long),
             ).pooler_output
 
-        def predict_text_many(self, texts: List[str]):
+        def predict_text_bunch(self, texts: List[str]):
             tokenized = tokenizer(texts, return_tensors='pt', padding='longest')
+            model(**tokenized)
+
+        def predict_text_many(self, ds: Dataset, text_column: str, *, limit: int):
+            chunk = ds[:limit]
+            tokenized = tokenizer(chunk[text_column], return_tensors='pt', padding='longest')
             model(**tokenized)
 
         def predict_text_one(self, text: str):
@@ -130,13 +145,17 @@ def create_bert_api():
 
         def list_datasets(self) -> AgentDatasetList:
             return AgentDatasetList(
-                datasets=[
-                    AgentDatasetEntry(name='glue/sst2')
-                ]
+                datasets=dataset_infos,
             )
 
-        def load_dataset(self, name: str):
-            pass
+        def load_dataset(self, name: str) -> Optional[Tuple[Dataset, AgentDatasetInfo]]:
+            if name == 'glue/sst2':
+                return (
+                    datasets.load_dataset('glue', 'sst2', split='validation'),
+                    dataset_infos[0],
+                )
+
+            assert False
 
     return BertAgentAPI()
 
@@ -188,7 +207,7 @@ def pasten_attention_head_matrix():
 
         with fmr.track_computations() as tracker:
             with torch.no_grad():
-                api.predict_text_many(
+                api.predict_text_bunch(
                     ['hello world', 'wassup?'],
                 )
 

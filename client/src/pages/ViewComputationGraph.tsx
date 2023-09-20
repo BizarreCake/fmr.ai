@@ -101,7 +101,7 @@ function ModelGraphView() {
             backgroundSize: '20px 20px',
           }}
         >
-          <CircularProgress size={64} />
+          <CircularProgress size={64}/>
           <Typography variant="body2">
             {rendering ? 'Rendering...' : 'Fetching...'}
           </Typography>

@@ -246,7 +246,7 @@ interface AnalyzeModelFindAttentionResponse {
 function useAnalyzeModelFindAttentionQuery() {
   return useQuery('model-attention', async () => {
     const result = await axios.get(
-      '/api/analyze/model/attention',
+      '/api/analyze/model/find_attention',
     );
 
     return result.data as AnalyzeModelFindAttentionResponse;

@@ -1,11 +1,15 @@
-from typing import List
+import os
+import time
+from typing import List, Optional
 
 import numpy as np
 import torch
 from torch import Tensor
+from datasets import Dataset
 
 from pydantic import BaseModel
 
+from fmrai.fmrai import Fmrai
 from fmrai.tracker import ComputationMap, TensorId, LazyComputationMap, OrdinalTensorId
 
 
@@ -67,7 +71,7 @@ def _compute_attention_head_divergence_matrix_one_instance(
         per_head_js = js.sum(dim=-1).sum(dim=-1)
         js_matrix[head] += per_head_js.cpu().numpy()
 
-    return js_matrix
+    return js_matrix / num_heads
 
 
 def compute_attention_head_divergence_matrix(
@@ -99,7 +103,46 @@ def compute_attention_head_divergence_matrix(
                 axis=0,
             ),
             axis=0
-        )
+        ) / instance_count
+
+
+class AttentionHeadPoint(BaseModel):
+    x: float
+    y: float
+
+
+class AttentionHeadClusteringResult(BaseModel):
+    key: str
+    created_at: float
+    mds: List[AttentionHeadPoint]
+    dataset_name: Optional[str] = None
+    limit: Optional[int] = None
+
+
+def compute_attention_head_clustering(
+        cmap: ComputationMap,
+        attention_tensors: List[TensorId],
+):
+    distance_matrix = compute_attention_head_divergence_matrix(
+        cmap,
+        attention_tensors,
+    )
+
+    # apply MDS to get 2d coordinates for each attention head
+    from sklearn.manifold import MDS
+    mds = MDS(n_components=2, dissimilarity='precomputed')
+    mds_coords = mds.fit_transform((distance_matrix + np.transpose(distance_matrix)) / 2)
+
+    key = os.urandom(8).hex()
+
+    return AttentionHeadClusteringResult(
+        key=key,
+        created_at=time.time(),
+        mds=[
+            AttentionHeadPoint(x=row[0], y=row[1])
+            for row in mds_coords.tolist()
+        ]
+    )
 
 
 def test_extract_attention():

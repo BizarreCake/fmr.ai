@@ -36,6 +36,12 @@ def get_computation_map_dir(name: str):
     return os.path.join(get_log_dir(), 'computation_maps', name)
 
 
+def get_attention_head_plots_dir(key: Optional[str] = None):
+    if key is None:
+        return os.path.join(get_log_dir(), 'attention_head_plots')
+    return os.path.join(get_attention_head_plots_dir(None), key)
+
+
 def _model_to_json(model):
     parameters = {
         name: {

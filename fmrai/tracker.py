@@ -99,10 +99,7 @@ class ComputationTracker:
             grad_id = id(tensor._saved_grad_fn)
             inside = self._grad_fn_to_tensor.get(grad_id)
 
-            if inside is not None and inside is not tensor:
-                print('pasten')
-
-            print('adding', tensor_id, tensor._saved_grad_fn, '->', id(tensor), ':', tensor._saved_grad_fn.next_functions if hasattr(tensor._saved_grad_fn, 'next_functions') else None)
+            # print('adding', tensor_id, tensor._saved_grad_fn, '->', id(tensor), ':', tensor._saved_grad_fn.next_functions if hasattr(tensor._saved_grad_fn, 'next_functions') else None)
             self._grad_fn_to_tensor[id(tensor._saved_grad_fn)] = tensor
 
     def reset(self, *, inc_step=False):
@@ -158,7 +155,7 @@ class ComputationTracker:
 
             node = GradFnNode(grad_fn=f)
 
-            print('visit_grad_fn', f, f.next_functions if hasattr(f, 'next_functions') else None)
+            # print('visit_grad_fn', f, f.next_functions if hasattr(f, 'next_functions') else None)
 
             g.add_node(node, label=node.label, style='filled', fillcolor='lightgray')
 
@@ -168,21 +165,21 @@ class ComputationTracker:
                         continue
 
                     prev_tensor = self._grad_fn_to_tensor.get(id(prev_f))
-                    print('  prev_f', prev_f, id(prev_tensor), prev_tensor._saved_grad_fn if prev_tensor is not None else None)
+                    # print('  prev_f', prev_f, id(prev_tensor), prev_tensor._saved_grad_fn if prev_tensor is not None else None)
                     if prev_tensor is not None:
                         prev_grad_fn = prev_tensor._saved_grad_fn
                     else:
                         prev_grad_fn = None
 
                     if prev_tensor is not None and prev_grad_fn is prev_f:
-                        print('    enq ten', id(prev_tensor), self._tensor_to_id.get(id(prev_tensor)))
+                        # print('    enq ten', id(prev_tensor), self._tensor_to_id.get(id(prev_tensor)))
                         work.append(WorkItem(
                             type=WorkItemType.TENSOR,
                             value=prev_tensor,
                             callback=lambda n: g.add_edge(n, node)
                         ))
                     else:
-                        print('    enq grad_fn', prev_f)
+                        # print('    enq grad_fn', prev_f)
                         work.append(WorkItem(
                             type=WorkItemType.GRAD_FN,
                             value=prev_f,
@@ -243,7 +240,7 @@ class ComputationTracker:
             else:
                 grad_fn = u.grad_fn
 
-            print('visit_tensor', type(t), id(t), tensor_id, grad_fn)
+            # print('visit_tensor', type(t), id(t), tensor_id, grad_fn)
 
             node = TensorNode(
                 tensor=u,

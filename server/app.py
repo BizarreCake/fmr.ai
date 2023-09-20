@@ -1,13 +1,15 @@
 import json
 import os.path
+from typing import Optional
+
 import requests
 
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import FileResponse
 
-from fmrai.analysis.attention import extract_attention_values
+from fmrai.analysis.attention import extract_attention_values, AttentionHeadClusteringResult
 from fmrai.analysis.structure import find_multi_head_attention
-from fmrai.logging import get_tensor_info_path, get_log_dir, get_computation_map_dir
+from fmrai.logging import get_tensor_info_path, get_log_dir, get_computation_map_dir, get_attention_head_plots_dir
 from fmrai.tracker import NiceComputationGraph, LazyComputationMap, OrdinalTensorId
 from server import models
 from server.agent_comm import find_agent_host
@@ -42,7 +44,7 @@ def get_model_graph():
         }
 
 
-@app.get('/api/analyze/model/attention')
+@app.get('/api/analyze/model/find_attention')
 def analyze_model_find_attention():
     cg = NiceComputationGraph.load_from(os.path.join(get_log_dir(), 'computation_graph.pickle'))
     instances = list(find_multi_head_attention(cg))
@@ -125,8 +127,76 @@ def analyze_text_extract_attention(
     )
 
 
+@app.post('/api/analyze/attention/compute_attention_head_plot')
+def compute_attention_head_plot(
+        dataset_name: str = Body(embed=True),
+        limit: Optional[int] = Body(None, embed=True),
+):
+    agent_addr = find_agent_host()
+    r = requests.post(
+        f'{agent_addr}/analyze/attention/compute_attention_head_plot',
+        json={
+            'dataset': dataset_name,
+            'limit': limit,
+        }
+    )
+
+    return r.json()
+
+
+@app.get('/api/analyze/attention/head_plot/list')
+def list_attention_head_plots():
+    root_dir = get_attention_head_plots_dir()
+
+    results = []
+
+    if os.path.isdir(root_dir):
+        for key in os.listdir(root_dir):
+            with open(os.path.join(root_dir, key, 'js.json')) as f:
+                result = AttentionHeadClusteringResult.model_validate_json(f.read())
+
+            results.append({
+                'key': key,
+                'created_at': result.created_at,
+                'dataset_name': result.dataset_name,
+                'limit': result.limit,
+            })
+
+    results.sort(key=lambda x: x['created_at'], reverse=True)
+
+    return {
+        'items': results,
+    }
+
+
+@app.get('/api/analyze/attention/head_plot/get')
+def get_attention_head_plot(key: str):
+    plot_dir = get_attention_head_plots_dir(key)
+
+    if not os.path.isdir(plot_dir):
+        raise HTTPException(status_code=404)
+
+    with open(os.path.join(plot_dir, 'js.json')) as f:
+        plot = AttentionHeadClusteringResult.model_validate_json(f.read())
+
+    return {
+        'result': plot,
+    }
+
+
+@app.get('/api/datasets/list')
+def list_datasets():
+    agent_addr = find_agent_host()
+    r = requests.get(
+        f'{agent_addr}/datasets/list',
+    )
+
+    return r.json()
+
+
 @app.get('/api/status')
 def get_status():
     return {
         'status': 'it works!'
     }
+

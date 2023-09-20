@@ -7,9 +7,11 @@ import {MainLayout} from "./layouts/MainLayout.tsx";
 import ViewComputationGraphPage from "./pages/ViewComputationGraph.tsx";
 import ViewTensorPage from "./pages/ViewTensor.tsx";
 import AnalyzeTextPage from "./pages/AnalyzeText.tsx";
-import ViewModelPage from "./pages/ViewModel.tsx";
+import ModelHomePage from "./pages/ModelHome.tsx";
 import HomePage from './pages/Home.tsx';
-import AnalyzeAttentionPage from "./pages/AnalyzeAttention.tsx";
+import AttentionHomePage from "./pages/AttentionHome.tsx";
+import AttentionClusteringPage from "./pages/AttentionClustering.tsx";
+import ViewAttentionClusteringPage from "./pages/ViewAttentionClustering.tsx";
 
 const queryClient = new QueryClient();
 
@@ -25,7 +27,7 @@ const router = createBrowserRouter([
       },
       {
         path: '/model',
-        element: <ViewModelPage />,
+        element: <ModelHomePage />,
       },
       {
         path: '/model/computation-graph',
@@ -37,7 +39,16 @@ const router = createBrowserRouter([
       },
       {
         path: '/analyze/global/attention',
-        element: <AnalyzeAttentionPage />,
+        element: <AttentionHomePage />,
+      },
+      {
+        path: '/analyze/global/attention/head-clustering',
+        element: <AttentionClusteringPage />,
+      },
+
+      {
+        path: '/analyze/global/attention/head-clustering/:key',
+        element: <ViewAttentionClusteringPage />,
       },
       {
         path: '/analyze/local/text',
