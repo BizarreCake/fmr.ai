@@ -18,6 +18,8 @@ export interface AttentionHeadPlotEntry {
 export interface AttentionHeadPoint {
   x: number;
   y: number;
+  tensor_id: string;
+  head_index: number;
 }
 
 export interface AttentionHeadPlotEntryWithData extends AttentionHeadPlotEntry {

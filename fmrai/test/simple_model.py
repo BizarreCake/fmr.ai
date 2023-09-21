@@ -8,7 +8,7 @@ from torch import nn
 
 from fmrai import fmrai
 from fmrai.agent import run_agent, AgentAPI
-from fmrai.agent.api import AgentTextPrediction, AgentDatasetList, AgentDatasetInfo
+from fmrai.agent.api import TokenizedText, AgentDatasetList, AgentDatasetInfo
 from fmrai.analysis.attention import compute_attention_head_divergence_matrix
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import Fmrai
@@ -96,7 +96,7 @@ def create_simple_model_api():
                 texts: List[str],
                 *,
                 track_tensors: Optional[Iterable[TensorId]] = None
-        ) -> AgentTextPrediction:
+        ) -> TokenizedText:
             x = torch.randn((1, 512))
             model(x)
 
@@ -121,9 +121,16 @@ def create_bert_api():
     class BertAgentAPI(AgentAPI):
         def predict_zero(self):
             return model(
-                input_ids=torch.full((1, 512), 0, dtype=torch.long),
-                attention_mask=torch.full((1, 512), 1, dtype=torch.long),
+                input_ids=torch.full((1, 64), 0, dtype=torch.long),
+                attention_mask=torch.full((1, 64), 1, dtype=torch.long),
             ).pooler_output
+
+        def tokenize_text(self, text: str) -> TokenizedText:
+            tokenized = tokenizer([text], return_tensors='pt')
+            return TokenizedText(
+                token_ids=tokenized['input_ids'].squeeze().tolist(),
+                token_names=tokenizer.convert_ids_to_tokens(tokenized['input_ids'].squeeze().tolist()),
+            )
 
         def predict_text_bunch(self, texts: List[str]):
             tokenized = tokenizer(texts, return_tensors='pt', padding='longest')
@@ -138,7 +145,7 @@ def create_bert_api():
             tokenized = tokenizer([text], return_tensors='pt')
             model(**tokenized)
 
-            return AgentTextPrediction(
+            return TokenizedText(
                 token_ids=tokenized['input_ids'].squeeze().tolist(),
                 token_names=tokenizer.convert_ids_to_tokens(tokenized['input_ids'].squeeze().tolist()),
             )

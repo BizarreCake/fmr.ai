@@ -6,7 +6,7 @@ from datasets import Dataset
 from fmrai.tracker import TensorId
 
 
-class AgentTextPrediction(BaseModel):
+class TokenizedText(BaseModel):
     token_ids: List[int]
     token_names: List[str]
 
@@ -29,10 +29,13 @@ class AgentAPI:
         """
         raise NotImplementedError()
 
-    def predict_text_one(self, text: str) -> AgentTextPrediction:
+    def tokenize_text(self, text: str) -> TokenizedText:
         raise NotImplementedError()
 
-    def predict_text_bunch(self, texts: List[str]) -> AgentTextPrediction:
+    def predict_text_one(self, text: str) -> TokenizedText:
+        raise NotImplementedError()
+
+    def predict_text_bunch(self, texts: List[str]) -> TokenizedText:
         raise NotImplementedError()
 
     def predict_text_many(
@@ -41,7 +44,7 @@ class AgentAPI:
             text_column: str,
             *,
             limit: Optional[int] = None
-    ) -> AgentTextPrediction:
+    ) -> TokenizedText:
         raise NotImplementedError()
 
     def list_datasets(self) -> AgentDatasetList:

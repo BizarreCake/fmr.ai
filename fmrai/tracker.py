@@ -418,8 +418,11 @@ class OpNode(GraphNode):
 
 
 class ComputationMap:
-    def save(self, key: str, time_step: int = 0):
+    def save_to_dir(self, dir_path: str, time_step: int = 0):
         raise NotImplementedError()
+
+    def save(self, key: str, time_step: int = 0):
+        self.save_to_dir(get_computation_map_dir(key), time_step=time_step)
 
     def get(self, tensor_id: TensorId) -> Optional[Tensor]:
         raise NotImplementedError()
@@ -432,8 +435,7 @@ class EagerComputationMap(ComputationMap):
     def get(self, tensor_id: TensorId) -> Optional[Tensor]:
         return self.data.get(tensor_id)
 
-    def save(self, key: str, time_step: int = 0):
-        root_dir = get_computation_map_dir(key)
+    def save_to_dir(self, root_dir: str, time_step: int = 0):
         for tensor_id, tensor in self.data.items():
             tensor_name = repr(tensor_id)
             assert tensor_name.startswith('@') or tensor_name.startswith('#')

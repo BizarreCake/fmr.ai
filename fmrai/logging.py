@@ -1,4 +1,6 @@
+import functools
 import json
+import operator
 import os
 from typing import Optional
 
@@ -126,7 +128,18 @@ def tensor_to_image(tensor: Tensor) -> PIL.Image:
     return img
 
 
-def log_tensor(tensor, name: str, time_step: int, *, root_dir: Optional[str] = None):
+def log_tensor(
+        tensor,
+        name: str,
+        time_step: int,
+        *,
+        root_dir: Optional[str] = None,
+        formats=None,
+):
+    if formats is None:
+        formats = ['torch']
+    used_formats = []
+
     tensor = unwrap_proxy(tensor)
 
     if root_dir is None:
@@ -142,26 +155,32 @@ def log_tensor(tensor, name: str, time_step: int, *, root_dir: Optional[str] = N
     }
 
     # save pytorch tensor
-    formats = ['torch']
-    tensor_path = os.path.join(tensor_dir, f't{time_step}.pt')
-    out_data['torch'] = tensor_path
-    torch.save(tensor, tensor_path)
+    if 'torch' in formats:
+        used_formats.append('torch')
+        tensor_path = os.path.join(tensor_dir, f't{time_step}.pt')
+        out_data['torch'] = tensor_path
+        torch.save(tensor, tensor_path)
 
-    img = tensor_to_image(tensor)
+    if 'image' in formats:
+        img = tensor_to_image(tensor)
+    else:
+        img = None
+
     if img is not None:
         img_path = os.path.join(tensor_dir, f't{time_step}.jpg')
         img.save(img_path)
-        formats.append('image')
+        used_formats.append('image')
         out_data.update({
             'image': img_path,
         })
-    else:
-        formats.append('inline')
+
+    if 'inline' in formats and functools.reduce(operator.mul, tensor.size(), 1) < 128:
+        used_formats.append('inline')
         out_data.update({
             'inline': tensor.tolist(),
         })
 
-    out_data['formats'] = formats
+    out_data['formats'] = used_formats
 
     with open(out_path, 'w') as f:
         json.dump(out_data, f, indent=2)

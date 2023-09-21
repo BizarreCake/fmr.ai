@@ -107,6 +107,8 @@ def compute_attention_head_divergence_matrix(
 
 
 class AttentionHeadPoint(BaseModel):
+    tensor_id: str
+    head_index: int
     x: float
     y: float
 
@@ -135,14 +137,38 @@ def compute_attention_head_clustering(
 
     key = os.urandom(8).hex()
 
+    heads = []
+    tensor_index = -1
+    head_index = 0
+    heads_in_tensor = 0
+    for i, row in enumerate(mds_coords.tolist()):
+        if heads_in_tensor == 0:
+            head_index = 0
+            tensor_index += 1
+            heads_in_tensor = cmap.get(attention_tensors[tensor_index]).size(1)
+
+        heads.append(AttentionHeadPoint(
+            tensor_id=str(attention_tensors[tensor_index]),
+            head_index=head_index,
+            x=row[0],
+            y=row[1],
+        ))
+
+        head_index += 1
+        heads_in_tensor -= 1
+
     return AttentionHeadClusteringResult(
         key=key,
         created_at=time.time(),
-        mds=[
-            AttentionHeadPoint(x=row[0], y=row[1])
-            for row in mds_coords.tolist()
-        ]
+        mds=heads,
     )
+
+
+def compute_attention_head_values_for_inputs(
+        cmap: ComputationMap,
+        attention_tensor_ids: List[TensorId],
+):
+    pass
 
 
 def test_extract_attention():

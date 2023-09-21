@@ -184,6 +184,20 @@ def get_attention_head_plot(key: str):
     }
 
 
+@app.get('/api/analyze/attention/head_plot/inputs')
+def analyze_attention_head_inputs(
+        key: str,
+        tensor_id: str,
+        head_index: int,
+        limit: Optional[int] = None,
+):
+    print('aahi', key, tensor_id, head_index, limit)
+    plot_dir = get_attention_head_plots_dir(key)
+
+    if not os.path.isdir(plot_dir):
+        raise HTTPException(status_code=404)
+
+
 @app.get('/api/datasets/list')
 def list_datasets():
     agent_addr = find_agent_host()
