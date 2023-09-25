@@ -56,7 +56,7 @@ def pasten():
 
         fmr.add_model(model, log_parameters=True)
 
-        with fmr.track_computations() as tracker:
+        with fmr.track() as tracker:
             # x = torch.randn((1, 512))
             x = torch.randint(0, 8, (1, 16))
 
@@ -184,14 +184,14 @@ def pasten_specific_tracking():
         model = AutoModel.from_pretrained('bert-base-uncased')
         fmr.add_model(model)
 
-        with fmr.track_computations() as tracker:
+        with fmr.track() as tracker:
             y = model(torch.randint(0, 7, (1, 64)))
             g = tracker.build_graph(y.pooler_output).make_nice()
 
         mha = list(find_multi_head_attention(g))
         print(mha)
 
-        with fmr.track_computations() as tracker:
+        with fmr.track() as tracker:
             model(torch.randint(0, 7, (1, 64)))
             mp = tracker.build_map(tensors=[
                 instance.softmax_value.tensor_id
@@ -212,7 +212,7 @@ def pasten_attention_head_matrix():
             OrdinalTensorId(ordinal=50),
         ]
 
-        with fmr.track_computations() as tracker:
+        with fmr.track() as tracker:
             with torch.no_grad():
                 api.predict_text_bunch(
                     ['hello world', 'wassup?'],

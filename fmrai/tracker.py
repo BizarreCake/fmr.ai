@@ -6,10 +6,10 @@ import re
 import subprocess
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Union, Dict, Optional, Callable, Any, Iterable
+from typing import Union, Dict, Optional, Callable, Any, Iterable, List
 
 import networkx as nx
-import reai.bert.base
+# import reai.bert.base
 import torch
 from torch import nn, Tensor
 from torch.nn import Parameter
@@ -59,7 +59,6 @@ class ComputationTracker:
     def __enter__(self):
         add_new_tensor_callback(self._handle_new_tensor)
         self._grad_fn_to_tensor = {}
-
         self._id_to_tensor = {}
         self._tensor_to_id = {}
         return self
@@ -301,6 +300,32 @@ class ComputationTracker:
         return EagerComputationMap(data=data)
 
 
+class BatchedComputationTracker:
+    def __init__(
+            self,
+            *,
+            track_tensors: Optional[Iterable[TensorId]] = None,
+    ):
+        self._tracker = ComputationTracker()
+        self._tracked_tensors = list(track_tensors) if track_tensors is not None else None
+        self._maps = []
+
+    def __enter__(self):
+        self._tracker.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._tracker.__exit__(exc_type, exc_val, exc_tb)
+
+    def end_batch(self):
+        """ Call this after completing processing a batch. """
+        batch_map = self._tracker.build_map()
+
+        self._tracker.step()
+
+    def build_map(self, *, tensors: Optional[Iterable[TensorId]] = None) -> 'BatchedComputationMap':
+        pass
+
+
 @contextlib.contextmanager
 def tracker_scope():
     tracker = ComputationTracker()
@@ -426,6 +451,14 @@ class ComputationMap:
 
     def get(self, tensor_id: TensorId) -> Optional[Tensor]:
         raise NotImplementedError()
+
+
+@dataclass
+class BatchedComputationMap:
+    batches: List[ComputationMap]
+
+    def __iter__(self):
+        return iter(self.batches)
 
 
 @dataclass

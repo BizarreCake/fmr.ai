@@ -6,7 +6,7 @@ authors = ["Jacob Zhitomirsky <bizarrecake@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.9"
 pydot = "^1.4.2"
 tqdm = "^4.66.1"
 fastapi = "^0.103.1"

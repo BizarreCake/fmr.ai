@@ -26,7 +26,7 @@ class Fmrai:
 
         return self._computation_tracker
 
-    def track_computations(self):
+    def track(self):
         if self._computation_tracker is None:
             return self._create_computation_tracker()
 

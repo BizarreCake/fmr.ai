@@ -24,7 +24,7 @@ class TextPredictionResult:
 def do_init_model(agent_state: AgentState):
     fmr = get_fmrai()
 
-    with fmr.track_computations() as tracker:
+    with fmr.track() as tracker:
         output = agent_state.api.predict_zero()
         graph = tracker.build_graph(output)
 
@@ -35,7 +35,7 @@ def do_init_model(agent_state: AgentState):
 def do_predict_text(agent_state: AgentState, text: str) -> TextPredictionResult:
     fmr = get_fmrai()
 
-    with fmr.track_computations() as tracker:
+    with fmr.track() as tracker:
         with torch.no_grad():
             result = agent_state.api.predict_text_one(text)
         mp = tracker.build_map()
@@ -67,14 +67,14 @@ def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, l
     fmr = get_fmrai()
 
     # find attention heads first
-    with fmr.track_computations() as tracker:
+    with fmr.track() as tracker:
         y = agent_state.api.predict_zero()
         g = tracker.build_graph(y).make_nice()
 
     heads = list(find_multi_head_attention(g))
     attention_tensor_ids = [h.softmax_value.tensor_id for h in heads]
 
-    with fmr.track_computations() as tracker:
+    with fmr.track() as tracker:
         with torch.no_grad():
             agent_state.api.predict_text_many(ds, ds_info.text_column, limit=limit)
         mp = tracker.build_map(tensors=attention_tensor_ids)
