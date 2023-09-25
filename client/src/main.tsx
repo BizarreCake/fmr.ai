@@ -12,6 +12,7 @@ import HomePage from './pages/Home.tsx';
 import AttentionHomePage from "./pages/AttentionHome.tsx";
 import AttentionClusteringPage from "./pages/AttentionClustering.tsx";
 import ViewAttentionClusteringPage from "./pages/ViewAttentionClustering.tsx";
+import ProjectsPage from "./pages/Projects.tsx";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,10 @@ const router = createBrowserRouter([
       {
         path: '/home',
         element: <HomePage />,
+      },
+      {
+        path: '/projects',
+        element: <ProjectsPage />,
       },
       {
         path: '/model',

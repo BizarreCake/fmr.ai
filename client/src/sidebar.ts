@@ -29,6 +29,10 @@ export const MAIN_SIDEBAR: SidebarConfig = {
           path: '/home',
         },
         {
+          text: 'Projects',
+          path: '/projects',
+        },
+        {
           text: 'Model Graph',
           path: '/model/computation-graph',
         },

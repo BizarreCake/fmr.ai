@@ -25,7 +25,7 @@ def extract_attention_values(
         cmap: ComputationMap,
         tensor_id: TensorId,
 ) -> List[AttentionExtraction]:
-    tensor = cmap.get(tensor_id)
+    tensor = cmap.get_cat(tensor_id)
 
     assert len(tensor.size()) == 4
     batch_size, num_heads, query_len, key_len = tensor.size()
