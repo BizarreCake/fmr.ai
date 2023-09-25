@@ -1,9 +1,7 @@
-from dataclasses import dataclass
-from typing import List, Optional, Iterable, Tuple
-from pydantic import BaseModel
-from datasets import Dataset
+from typing import List, Optional, Tuple
 
-from fmrai.tracker import TensorId
+from datasets import Dataset
+from pydantic import BaseModel
 
 
 class TokenizedText(BaseModel):

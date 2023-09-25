@@ -43,15 +43,25 @@ class NamedTensorId(TensorId):
 
 
 class ComputationTracker:
+    def build_map(self):
+        raise NotImplementedError()
+
+
+class SingleComputationTracker(ComputationTracker):
     """
     Tracks activations of a computation graph.
     """
 
-    def __init__(self):
+    def __init__(
+            self,
+            *,
+            track_tensors: Optional[Iterable[TensorId]] = None,
+    ):
         self._next_ordinal = 0
         self._current_step = 0
         self._root_model = None
         self._tracking = True
+        self._tracked_tensors = list(track_tensors) if track_tensors is not None else None
 
     def set_root_model(self, model):
         self._root_model = model
@@ -291,27 +301,28 @@ class ComputationTracker:
 
         return ComputationGraph(g=g)
 
-    def build_map(self, *, tensors: Optional[Iterable[TensorId]] = None) -> 'ComputationMap':
-        if tensors:
-            data = {tensor_id: unwrap_proxy(self._id_to_tensor.get(tensor_id)) for tensor_id in tensors}
+    def build_map(self) -> 'ComputationMap':
+        if self._tracked_tensors:
+            data = {tensor_id: unwrap_proxy(self._id_to_tensor.get(tensor_id)) for tensor_id in self._tracked_tensors}
         else:
             data = {tensor_id: unwrap_proxy(tensor) for tensor_id, tensor in self._id_to_tensor.items()}
 
         return EagerComputationMap(data=data)
 
 
-class BatchedComputationTracker:
+class BatchedComputationTracker(ComputationTracker):
     def __init__(
             self,
             *,
             track_tensors: Optional[Iterable[TensorId]] = None,
     ):
-        self._tracker = ComputationTracker()
+        self._tracker = SingleComputationTracker(track_tensors=track_tensors)
         self._tracked_tensors = list(track_tensors) if track_tensors is not None else None
         self._maps = []
 
     def __enter__(self):
         self._tracker.__enter__()
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._tracker.__exit__(exc_type, exc_val, exc_tb)
@@ -319,16 +330,26 @@ class BatchedComputationTracker:
     def end_batch(self):
         """ Call this after completing processing a batch. """
         batch_map = self._tracker.build_map()
+        self._maps.append(batch_map)
 
         self._tracker.step()
 
-    def build_map(self, *, tensors: Optional[Iterable[TensorId]] = None) -> 'BatchedComputationMap':
-        pass
+    def set_root_model(self, model):
+        self._tracker.set_root_model(model)
+
+    def build_map(self) -> 'BatchedComputationMap':
+        result_maps = self._maps
+        self._maps = []
+
+        return BatchedComputationMap(
+            batches=result_maps,
+        )
 
 
 @contextlib.contextmanager
 def tracker_scope():
-    tracker = ComputationTracker()
+    """ DEPRECATED """
+    tracker = SingleComputationTracker()
     try:
         with instrumentation_scope():
             tracker._register_callbacks()
@@ -449,24 +470,26 @@ class ComputationMap:
     def save(self, key: str, time_step: int = 0):
         self.save_to_dir(get_computation_map_dir(key), time_step=time_step)
 
-    def get(self, tensor_id: TensorId) -> Optional[Tensor]:
+    def get(self, tensor_id: TensorId) -> List[Tensor]:
         raise NotImplementedError()
 
+    def get_cat(self, tensor_id: TensorId, *, dim=0) -> Optional[Tensor]:
+        result = self.get(tensor_id)
+        if result is None:
+            return None
 
-@dataclass
-class BatchedComputationMap:
-    batches: List[ComputationMap]
-
-    def __iter__(self):
-        return iter(self.batches)
+        return torch.cat(result, dim=dim)
 
 
 @dataclass
 class EagerComputationMap(ComputationMap):
     data: Dict[TensorId, Tensor]
 
-    def get(self, tensor_id: TensorId) -> Optional[Tensor]:
-        return self.data.get(tensor_id)
+    def get(self, tensor_id: TensorId) -> List[Tensor]:
+        tensor = self.data.get(tensor_id)
+        if tensor is not None:
+            return [tensor]
+        return []
 
     def save_to_dir(self, root_dir: str, time_step: int = 0):
         for tensor_id, tensor in self.data.items():
@@ -474,6 +497,9 @@ class EagerComputationMap(ComputationMap):
             assert tensor_name.startswith('@') or tensor_name.startswith('#')
 
             log_tensor(tensor, tensor_name[1:], time_step=time_step, root_dir=root_dir)
+
+    def __repr__(self):
+        return f'<eager map: {len(self.data)} tensors>'
 
 
 class LazyComputationMap(ComputationMap):
@@ -487,10 +513,10 @@ class LazyComputationMap(ComputationMap):
         assert os.path.isdir(path)
         return LazyComputationMap(path, time_step)
 
-    def get(self, tensor_id: TensorId) -> Optional[Tensor]:
+    def get(self, tensor_id: TensorId) -> List[Tensor]:
         existing = self._data.get(tensor_id)
         if existing is not None:
-            return existing
+            return [existing]
 
         tensor_name = repr(tensor_id)
         assert tensor_name.startswith('@') or tensor_name.startswith('#')
@@ -500,9 +526,61 @@ class LazyComputationMap(ComputationMap):
             with open(tensor_path, 'rb') as f:
                 tensor = torch.load(f)
                 self._data[tensor_id] = tensor
-                return tensor
+                return [tensor]
 
-        return None
+        return []
+
+    def __repr__(self):
+        return f'<lazy map: ? tensors>'
+
+
+@dataclass
+class BatchedComputationMap(ComputationMap):
+    batches: List[ComputationMap]
+
+    def __iter__(self):
+        return iter(self.batches)
+
+    def __len__(self):
+        return len(self.batches)
+
+    @staticmethod
+    def load_from(path: str, time_step: int = 0) -> 'BatchedComputationMap':
+        assert os.path.isdir(path)
+
+        # find all batch directories
+        batch_dirs = []
+        for name in os.listdir(path):
+            if name.startswith('batch_'):
+                batch_dir_path = os.path.join(path, name)
+                if os.path.isdir(batch_dir_path):
+                    batch_dirs.append(batch_dir_path)
+
+        # sort by batch number
+        batch_dirs.sort(key=lambda p: int(os.path.basename(p)[len('batch_'):]))
+
+        # load each batch
+        batches = []
+        for batch_dir_path in tqdm(batch_dirs, desc='Loading batches'):
+            batches.append(LazyComputationMap.load_from(batch_dir_path, time_step=time_step))
+
+        return BatchedComputationMap(batches=batches)
+
+    def save_to_dir(self, dir_path: str, time_step: int = 0):
+        for i, batch in enumerate(self.batches):
+            batch.save_to_dir(
+                os.path.join(dir_path, f'batch_{i}'),
+                time_step=time_step,
+            )
+
+    def save(self, key: str, time_step: int = 0):
+        self.save_to_dir(get_computation_map_dir(key), time_step=time_step)
+
+    def get(self, tensor_id: TensorId) -> List[Tensor]:
+        result = []
+        for batch in self.batches:
+            result.extend(batch.get(tensor_id))
+        return result
 
 
 @dataclass

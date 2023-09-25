@@ -1,14 +1,14 @@
 import contextlib
-from typing import Optional, Generator
+from typing import Optional, Generator, Union, Iterable
 
 from fmrai.instrument import instrumentation_scope, get_current_instrumentation_state
 from fmrai.logging import log_model, log_model_parameters
-from fmrai.tracker import ComputationTracker
+from fmrai.tracker import SingleComputationTracker, BatchedComputationTracker, TensorId
 
 
 class Fmrai:
     def __init__(self):
-        self._computation_tracker: Optional[ComputationTracker] = None
+        self._computation_tracker: Optional[SingleComputationTracker] = None
         self._models = []
 
     def add_model(self, model, *, log_parameters=False):
@@ -17,21 +17,21 @@ class Fmrai:
         if log_parameters:
             log_model_parameters(model, time_step=0)
 
-    def _create_computation_tracker(self):
-        assert self._computation_tracker is None
-        self._computation_tracker = ComputationTracker()
+    def track(
+            self,
+            *,
+            batched=False,
+            track_tensors: Optional[Iterable[TensorId]] = None,
+    ) -> Union[SingleComputationTracker, BatchedComputationTracker]:
+        if batched:
+            tracker = BatchedComputationTracker(track_tensors=track_tensors)
+        else:
+            tracker = SingleComputationTracker(track_tensors=track_tensors)
 
         if len(self._models) == 1:
-            self._computation_tracker.set_root_model(self._models[0])
+            tracker.set_root_model(self._models[0])
 
-        return self._computation_tracker
-
-    def track(self):
-        if self._computation_tracker is None:
-            return self._create_computation_tracker()
-
-        self._computation_tracker.reset()
-        return self._computation_tracker
+        return tracker
 
 
 @contextlib.contextmanager

@@ -8,6 +8,7 @@ from torch import nn
 
 from fmrai import fmrai
 from fmrai.agent import run_agent, AgentAPI
+from fmrai.agent.agents.transformers import TransformersAgentAPI
 from fmrai.agent.api import TokenizedText, AgentDatasetList, AgentDatasetInfo
 from fmrai.analysis.attention import compute_attention_head_divergence_matrix
 from fmrai.analysis.structure import find_multi_head_attention
@@ -118,37 +119,9 @@ def create_bert_api():
         )
     ]
 
-    class BertAgentAPI(AgentAPI):
-        def predict_zero(self):
-            return model(
-                input_ids=torch.full((1, 64), 0, dtype=torch.long),
-                attention_mask=torch.full((1, 64), 1, dtype=torch.long),
-            ).pooler_output
-
-        def tokenize_text(self, text: str) -> TokenizedText:
-            tokenized = tokenizer([text], return_tensors='pt')
-            return TokenizedText(
-                token_ids=tokenized['input_ids'].squeeze().tolist(),
-                token_names=tokenizer.convert_ids_to_tokens(tokenized['input_ids'].squeeze().tolist()),
-            )
-
-        def predict_text_bunch(self, texts: List[str]):
-            tokenized = tokenizer(texts, return_tensors='pt', padding='longest')
-            model(**tokenized)
-
-        def predict_text_many(self, ds: Dataset, text_column: str, *, limit: int):
-            chunk = ds[:limit]
-            tokenized = tokenizer(chunk[text_column], return_tensors='pt', padding='longest')
-            model(**tokenized)
-
-        def predict_text_one(self, text: str):
-            tokenized = tokenizer([text], return_tensors='pt')
-            model(**tokenized)
-
-            return TokenizedText(
-                token_ids=tokenized['input_ids'].squeeze().tolist(),
-                token_names=tokenizer.convert_ids_to_tokens(tokenized['input_ids'].squeeze().tolist()),
-            )
+    class BertAgentAPI(TransformersAgentAPI):
+        def __init__(self):
+            super().__init__('bert-base-uncased')
 
         def list_datasets(self) -> AgentDatasetList:
             return AgentDatasetList(
@@ -191,12 +164,13 @@ def pasten_specific_tracking():
         mha = list(find_multi_head_attention(g))
         print(mha)
 
-        with fmr.track() as tracker:
+        with fmr.track(
+                track_tensors=[
+                    instance.softmax_value.tensor_id
+                    for instance in mha
+                ]) as tracker:
             model(torch.randint(0, 7, (1, 64)))
-            mp = tracker.build_map(tensors=[
-                instance.softmax_value.tensor_id
-                for instance in mha
-            ])
+            mp = tracker.build_map()
 
         print(mp)
 
@@ -212,13 +186,13 @@ def pasten_attention_head_matrix():
             OrdinalTensorId(ordinal=50),
         ]
 
-        with fmr.track() as tracker:
+        with fmr.track(track_tensors=attention_tensor_ids) as tracker:
             with torch.no_grad():
                 api.predict_text_bunch(
                     ['hello world', 'wassup?'],
                 )
 
-            batch_cmap = tracker.build_map(tensors=attention_tensor_ids)
+            batch_cmap = tracker.build_map()
 
         js_matrix = compute_attention_head_divergence_matrix(batch_cmap, attention_tensor_ids)
         return js_matrix

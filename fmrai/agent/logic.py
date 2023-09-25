@@ -1,15 +1,13 @@
-import json
 import os
 from dataclasses import dataclass
 from typing import List, Optional
-from pydantic import BaseModel
-import numpy as np
 
 import torch
+from pydantic import BaseModel
 
 from fmrai.agent import AgentState
 from fmrai.agent.api import TokenizedText
-from fmrai.analysis.attention import compute_attention_head_divergence_matrix, compute_attention_head_clustering
+from fmrai.analysis.attention import compute_attention_head_clustering
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import get_fmrai
 from fmrai.logging import get_log_dir, get_attention_head_plots_dir
@@ -74,10 +72,10 @@ def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, l
     heads = list(find_multi_head_attention(g))
     attention_tensor_ids = [h.softmax_value.tensor_id for h in heads]
 
-    with fmr.track() as tracker:
+    with fmr.track(track_tensors=attention_tensor_ids) as tracker:
         with torch.no_grad():
             agent_state.api.predict_text_many(ds, ds_info.text_column, limit=limit)
-        mp = tracker.build_map(tensors=attention_tensor_ids)
+        mp = tracker.build_map()
 
     result = compute_attention_head_clustering(mp, attention_tensor_ids)
     result.dataset_name = dataset_name

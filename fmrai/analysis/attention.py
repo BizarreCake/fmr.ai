@@ -10,7 +10,7 @@ from datasets import Dataset
 from pydantic import BaseModel
 
 from fmrai.fmrai import Fmrai
-from fmrai.tracker import ComputationMap, TensorId, LazyComputationMap, OrdinalTensorId
+from fmrai.tracker import ComputationMap, TensorId, LazyComputationMap, OrdinalTensorId, BatchedComputationMap
 
 
 class AttentionHeadExtraction(BaseModel):
@@ -82,7 +82,7 @@ def compute_attention_head_divergence_matrix(
         # gather all tensors and check that they have the same shape
         all_tensors = []
         for tensor_id in attention_tensors:
-            tensor = batch_cmap.get(tensor_id)
+            tensor = batch_cmap.get_cat(tensor_id)
 
             if all_tensors:
                 assert (all_tensors[-1].size() == tensor.size())
@@ -90,7 +90,7 @@ def compute_attention_head_divergence_matrix(
             all_tensors.append(tensor)
 
         # concatenate all tensors
-        big_tensor = torch.concat(all_tensors, dim=1)  # concatentate along num_heads dimension
+        big_tensor = torch.concat(all_tensors, dim=1)  # concatenate along num_heads dimension
 
         # compute per instance and sum
         instance_count = all_tensors[0].size(0)
@@ -125,10 +125,15 @@ def compute_attention_head_clustering(
         cmap: ComputationMap,
         attention_tensors: List[TensorId],
 ):
-    distance_matrix = compute_attention_head_divergence_matrix(
-        cmap,
-        attention_tensors,
-    )
+    if isinstance(cmap, BatchedComputationMap):
+        batches = list(cmap)
+    else:
+        batches = [cmap]
+
+    distance_matrix = np.sum((
+        compute_attention_head_divergence_matrix(cmap, attention_tensors)
+        for cmap in batches
+    ), axis=0) / len(batches)
 
     # apply MDS to get 2d coordinates for each attention head
     from sklearn.manifold import MDS
@@ -145,7 +150,7 @@ def compute_attention_head_clustering(
         if heads_in_tensor == 0:
             head_index = 0
             tensor_index += 1
-            heads_in_tensor = cmap.get(attention_tensors[tensor_index]).size(1)
+            heads_in_tensor = batches[0].get(attention_tensors[tensor_index])[0].size(1)
 
         heads.append(AttentionHeadPoint(
             tensor_id=str(attention_tensors[tensor_index]),
