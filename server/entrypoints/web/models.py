@@ -24,3 +24,7 @@ class AnalyzeModelFindAttentionOut(BaseModel):
 
 class AnalyzeTextExtractAttentionOut(BaseModel):
     batch: List[AttentionExtraction]
+
+
+class NewProjectIn(BaseModel):
+    name: str

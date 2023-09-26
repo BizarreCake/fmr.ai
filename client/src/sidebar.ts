@@ -9,7 +9,7 @@ export interface SidebarItem {
 
 
 export interface SidebarGroup {
-  title: string;
+  title?: string;
   items: SidebarItem[];
 }
 
@@ -22,7 +22,6 @@ export interface SidebarConfig {
 export const MAIN_SIDEBAR: SidebarConfig = {
   groups: [
     {
-      title: 'General',
       items: [
         {
           text: 'Home',
@@ -32,6 +31,16 @@ export const MAIN_SIDEBAR: SidebarConfig = {
           text: 'Projects',
           path: '/projects',
         },
+      ],
+    },
+  ],
+};
+
+export const PROJECT_SIDEBAR = {
+  groups: [
+    {
+      title: 'General',
+      items: [
         {
           text: 'Model Graph',
           path: '/model/computation-graph',
@@ -57,4 +66,4 @@ export const MAIN_SIDEBAR: SidebarConfig = {
       ]
     }
   ],
-};
+}

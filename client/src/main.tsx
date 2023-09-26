@@ -13,11 +13,16 @@ import AttentionHomePage from "./pages/AttentionHome.tsx";
 import AttentionClusteringPage from "./pages/AttentionClustering.tsx";
 import ViewAttentionClusteringPage from "./pages/ViewAttentionClustering.tsx";
 import ProjectsPage from "./pages/Projects.tsx";
+import {ProjectLayout} from "./layouts/ProjectLayout.tsx";
 
 const queryClient = new QueryClient();
 
 
 const router = createBrowserRouter([
+  {
+    path: '/project/:projectId',
+    element: <ProjectLayout />,
+  },
   {
     path: '/',
     element: <MainLayout />,

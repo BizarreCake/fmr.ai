@@ -26,3 +26,10 @@ export interface AttentionHeadPlotEntryWithData extends AttentionHeadPlotEntry {
   mds: AttentionHeadPoint[];
 }
 
+
+export interface Project {
+  uuid: string;
+  name: string;
+  description: null | string;
+}
+
