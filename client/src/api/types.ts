@@ -33,3 +33,8 @@ export interface Project {
   description: null | string;
 }
 
+
+export interface Agent {
+  uuid: string;
+}
+

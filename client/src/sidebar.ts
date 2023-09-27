@@ -15,6 +15,7 @@ export interface SidebarGroup {
 
 
 export interface SidebarConfig {
+  rootPath?: string;
   groups: SidebarGroup[];
 }
 
@@ -41,6 +42,10 @@ export const PROJECT_SIDEBAR = {
     {
       title: 'General',
       items: [
+        {
+          text: 'Agents',
+          path: '/agents',
+        },
         {
           text: 'Model Graph',
           path: '/model/computation-graph',

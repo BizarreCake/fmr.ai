@@ -37,3 +37,13 @@ def get_project(uuid: str):
     return {
         'project': project.make_info_model()
     }
+
+
+@router.get('/agents/list')
+def list_agents(project_uuid: str):
+    repo = get_local_project_repository()
+    project = repo.get_project(project_uuid)
+
+    return {
+        'agents': []
+    }

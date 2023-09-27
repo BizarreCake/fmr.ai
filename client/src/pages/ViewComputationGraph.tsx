@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from "react";
 import axios from "axios";
-import {Box, CircularProgress, Stack, Typography} from "@mui/material";
+import {Box, CircularProgress, Stack, Typography, Card, Button} from "@mui/material";
 import {useQuery} from "react-query";
 
 import * as d3 from "d3";
@@ -125,6 +125,34 @@ function ModelGraphView() {
 }
 
 
+function NoGraphAvailable() {
+  return (
+    <Stack
+      sx={{
+        height: '100%',
+        backgroundColor: '#ffffff',
+        opacity: 0.8,
+        backgroundImage: 'repeating-radial-gradient( circle at 0 0, transparent 0, #ffffff 10px ), repeating-linear-gradient( #d8eaff55, #d8eaff )',
+      }}
+      justifyContent="center"
+      alignItems="center"
+    >
+      <Card sx={{ p: 3 }}>
+        <Stack spacing={3}>
+          <Typography>
+            A model graph has not been generated yet for this project.
+          </Typography>
+
+          <Button variant="contained">
+            Generate Graph
+          </Button>
+        </Stack>
+      </Card>
+    </Stack>
+  )
+}
+
+
 export default function ViewComputationGraphPage() {
   return (
     <Box
@@ -133,7 +161,8 @@ export default function ViewComputationGraphPage() {
         inset: 0,
       }}
     >
-      <ModelGraphView/>
+      {/*<ModelGraphView/>*/}
+      <NoGraphAvailable />
     </Box>
   );
 }

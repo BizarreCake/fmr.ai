@@ -11,16 +11,18 @@ export const SIDEBAR_WIDTH = 300;
 interface ViewSidebarItemProps {
   item: SidebarItem;
   indent: number;
+  rootPath?: string;
 }
 
 function ViewSidebarItem(props: ViewSidebarItemProps) {
   const location = useLocation();
-  const selected = location.pathname.startsWith(props.item.path);
+  const fullPath = props.rootPath ? props.rootPath + props.item.path : props.item.path;
+  const selected = location.pathname.startsWith(fullPath);
 
   const navigate = useNavigate();
   const handleClick = () => {
     if (props.item.path)
-      navigate(props.item.path);
+      navigate(fullPath);
   };
 
   return (
@@ -38,7 +40,7 @@ function ViewSidebarItem(props: ViewSidebarItemProps) {
 
       {props.item.children && (
         props.item.children.map((child, i) => (
-          <ViewSidebarItem key={i} item={child} indent={props.indent + 1}/>
+          <ViewSidebarItem key={i} item={child} indent={props.indent + 1} rootPath={props.rootPath} />
         ))
       )}
     </>
@@ -47,6 +49,7 @@ function ViewSidebarItem(props: ViewSidebarItemProps) {
 
 
 interface ViewSidebarGroupProps {
+  rootPath?: string;
   group: SidebarGroup;
 }
 
@@ -62,7 +65,7 @@ function ViewSidebarGroup(props: ViewSidebarGroupProps) {
 
       <List>
         {props.group.items.map((item, i) => (
-          <ViewSidebarItem key={i} item={item} indent={0}/>
+          <ViewSidebarItem key={i} item={item} indent={0} rootPath={props.rootPath} />
         ))}
       </List>
     </>
@@ -103,7 +106,11 @@ export function AppSidebar(props: AppSidebarProps) {
       )}
 
       {props.config.groups.map((group, i) => (
-        <ViewSidebarGroup key={i} group={group}/>
+        <ViewSidebarGroup
+          key={i}
+          group={group}
+          rootPath={props.config.rootPath}
+        />
       ))}
     </Box>
   )

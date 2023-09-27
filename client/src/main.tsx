@@ -14,6 +14,7 @@ import AttentionClusteringPage from "./pages/AttentionClustering.tsx";
 import ViewAttentionClusteringPage from "./pages/ViewAttentionClustering.tsx";
 import ProjectsPage from "./pages/Projects.tsx";
 import {ProjectLayout} from "./layouts/ProjectLayout.tsx";
+import ProjectAgentsPage from "./pages/project/Agents.tsx";
 
 const queryClient = new QueryClient();
 
@@ -22,6 +23,16 @@ const router = createBrowserRouter([
   {
     path: '/project/:projectId',
     element: <ProjectLayout />,
+    children: [
+      {
+        path: '/project/:projectId/agents',
+        element: <ProjectAgentsPage />,
+      },
+      {
+        path: '/project/:projectId/model/computation-graph',
+        element: <ViewComputationGraphPage />,
+      },
+    ]
   },
   {
     path: '/',
@@ -38,10 +49,6 @@ const router = createBrowserRouter([
       {
         path: '/model',
         element: <ModelHomePage />,
-      },
-      {
-        path: '/model/computation-graph',
-        element: <ViewComputationGraphPage />,
       },
       {
         path: '/tensor/:tensorId',

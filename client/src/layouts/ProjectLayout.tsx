@@ -1,7 +1,9 @@
-import {AppBar, Container, Toolbar, Typography} from "@mui/material";
-import {AppSidebar} from "../components/AppSidebar.tsx";
+import {AppBar, Box, Container, Toolbar, Typography} from "@mui/material";
+import {AppSidebar, SIDEBAR_WIDTH} from "../components/AppSidebar.tsx";
 import {PROJECT_SIDEBAR} from "../sidebar.ts";
 import {useCurrentProjectQuery} from "../hooks/current.ts";
+import {useMemo} from "react";
+import {Outlet} from "react-router";
 
 
 function ProjectAppBar() {
@@ -38,14 +40,33 @@ function ProjectAppBar() {
 
 
 export function ProjectLayout() {
+  const { data } = useCurrentProjectQuery();
+
+  const sidebarConfig = useMemo(() => ({
+    ...PROJECT_SIDEBAR,
+    rootPath: `/project/${data?.project?.uuid}`,
+  }), [data?.project?.uuid]);
+
   return (
     <>
       <ProjectAppBar />
+
       <AppSidebar
-        config={PROJECT_SIDEBAR}
+        config={sidebarConfig}
         backLink="/projects"
         backText="Back to Projects"
       />
+
+      <Box
+        sx={{
+          height: 'calc(100vh - 64px)',
+          position: 'relative',
+          left: SIDEBAR_WIDTH,
+          width: `calc(100vw - ${SIDEBAR_WIDTH}px)`,
+        }}
+      >
+        <Outlet/>
+      </Box>
     </>
   );
 }
