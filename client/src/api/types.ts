@@ -36,5 +36,8 @@ export interface Project {
 
 export interface Agent {
   uuid: string;
+  name: string;
+  description: null | string;
+  model_name: string;
 }
 

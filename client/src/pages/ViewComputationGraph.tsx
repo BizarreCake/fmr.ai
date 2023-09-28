@@ -1,11 +1,13 @@
 import React, {useEffect, useState} from "react";
 import axios from "axios";
-import {Box, CircularProgress, Stack, Typography, Card, Button} from "@mui/material";
+import {Box, CircularProgress, Stack, Typography, Card, Button, Alert} from "@mui/material";
 import {useQuery} from "react-query";
 
 import * as d3 from "d3";
 import "d3-graphviz";
 import {useNavigate} from "react-router";
+import {useAtomValue} from "jotai";
+import {currentModelAtom} from "../state/models.ts";
 
 
 interface ModelGraphResponse {
@@ -126,6 +128,12 @@ function ModelGraphView() {
 
 
 function NoGraphAvailable() {
+  const currentModel = useAtomValue(currentModelAtom);
+
+  const handleGenerate = () => {
+
+  };
+
   return (
     <Stack
       sx={{
@@ -138,15 +146,23 @@ function NoGraphAvailable() {
       alignItems="center"
     >
       <Card sx={{ p: 3 }}>
-        <Stack spacing={3}>
-          <Typography>
-            A model graph has not been generated yet for this project.
-          </Typography>
+        {!currentModel && (
+          <Alert severity="info">
+            There is no model available. Please connect an agent to this project.
+          </Alert>
+        )}
 
-          <Button variant="contained">
-            Generate Graph
-          </Button>
-        </Stack>
+        {currentModel && (
+          <Stack spacing={3}>
+            <Typography>
+              A model graph of <b>{currentModel}</b> has not been generated yet for this project.
+            </Typography>
+
+            <Button variant="contained" onClick={handleGenerate}>
+              Generate Graph
+            </Button>
+          </Stack>
+        )}
       </Card>
     </Stack>
   )

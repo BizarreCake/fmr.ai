@@ -6,6 +6,8 @@ import {useQuery} from "react-query";
 import axios from "axios";
 import {Add} from "@mui/icons-material";
 import {useNavigate} from "react-router";
+import {useSetAtom} from "jotai";
+import {currentModelAtom} from "../state/models.ts";
 
 
 function NewProjectAlertButton() {
@@ -65,8 +67,10 @@ function ProjectList() {
   const { data, isLoading } = useListProjectsQuery({});
 
   const navigate = useNavigate();
+  const updateCurrentModel = useSetAtom(currentModelAtom);
   const handleClickProject = (project: Project) => {
     navigate(`/project/${project.uuid}`);
+    updateCurrentModel(null);
   };
 
   return (

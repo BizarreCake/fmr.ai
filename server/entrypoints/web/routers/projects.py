@@ -1,6 +1,9 @@
+import uuid
+
 from fastapi import APIRouter
 
 from server.adapters.repository import get_local_project_repository
+from server.domain.project import AgentInfo
 from server.entrypoints.web import models
 
 router = APIRouter(prefix='/api/projects')
@@ -45,5 +48,21 @@ def list_agents(project_uuid: str):
     project = repo.get_project(project_uuid)
 
     return {
-        'agents': []
+        'agents': project.agents,
     }
+
+
+@router.post('/agents/add')
+def add_agent(data: models.AddAgentIn):
+    repo = get_local_project_repository()
+    project = repo.get_project(data.project_uuid)
+
+    project.agents.append(AgentInfo(
+        uuid=uuid.uuid4().hex,
+        name=data.agent_name,
+        description=None,
+        connect_url=data.connect_url,
+        model_name=data.model_name,
+    ))
+
+    repo.update_project(project)

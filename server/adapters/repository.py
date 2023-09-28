@@ -1,8 +1,9 @@
+import json
 import os
 import uuid
 from typing import List, Optional
 
-from server.domain.project import Project, ProjectInfoModel
+from server.domain.project import Project, ProjectInfoModel, AgentInfo
 
 LOCAL_PROJECTS_ROOT_DIR = 'data/projects'
 
@@ -15,6 +16,9 @@ class ProjectRepository:
         raise NotImplementedError()
 
     def get_project(self, uuid: str) -> Optional[Project]:
+        raise NotImplementedError()
+
+    def update_project(self, project: Project):
         raise NotImplementedError()
 
 
@@ -31,11 +35,7 @@ class LocalProjectRepository(ProjectRepository):
             agents=[]
         )
 
-        project_dir = os.path.join(self._root_dir, project.uuid)
-        os.makedirs(project_dir, exist_ok=True)
-
-        with open(os.path.join(project_dir, 'project.json'), 'w') as f:
-            f.write(project.make_info_model().model_dump_json(indent=2))
+        self.update_project(project)
 
         return project
 
@@ -51,7 +51,7 @@ class LocalProjectRepository(ProjectRepository):
             with open(os.path.join(project_dir, 'project.json')) as f:
                 project_info = ProjectInfoModel.model_validate_json(f.read())
 
-            project = Project.from_info_model(project_info)
+            project = Project.load(project_info)
             projects.append(project)
 
         return projects
@@ -65,8 +65,15 @@ class LocalProjectRepository(ProjectRepository):
         with open(os.path.join(project_dir, 'project.json')) as f:
             project_info = ProjectInfoModel.model_validate_json(f.read())
 
-        project = Project.from_info_model(project_info)
+        project = Project.load(project_info)
         return project
+
+    def update_project(self, project: Project):
+        project_dir = os.path.join(self._root_dir, project.uuid)
+        os.makedirs(project_dir, exist_ok=True)
+
+        with open(os.path.join(project_dir, 'project.json'), 'w') as f:
+            f.write(project.make_info_model().model_dump_json(indent=2))
 
 
 def get_local_project_repository():
