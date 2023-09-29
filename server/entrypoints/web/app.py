@@ -13,9 +13,11 @@ from fmrai.tracker import NiceComputationGraph, LazyComputationMap, OrdinalTenso
 from server.agent_comm import find_agent_host
 from server.entrypoints.web import models
 from server.entrypoints.web.routers.projects import router as projects_router
+from server.entrypoints.web.routers.analysis import router as analysis_router
 
 app = FastAPI()
 app.include_router(projects_router)
+app.include_router(analysis_router)
 
 
 def _init_model():

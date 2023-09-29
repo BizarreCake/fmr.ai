@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -51,3 +52,13 @@ class Project:
             description=model.description,
             agents=model.agents,
         )
+
+    def get_agent(self, agent_uuid: str) -> Optional[AgentInfo]:
+        for agent in self.agents:
+            if agent.uuid == agent_uuid:
+                return agent
+        return None
+
+    @property
+    def data_root_dir(self):
+        return os.path.join('./data/projects', self.uuid)

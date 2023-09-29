@@ -16,6 +16,13 @@ def get_log_dir():
     return './data'
 
 
+def get_computation_graph_dir(model_name: str, *, root_dir: Optional[str] = None):
+    p = os.path.join('computation_graphs', model_name)
+    if root_dir:
+        p = os.path.join(root_dir, p)
+    return p
+
+
 def get_slices_dir():
     return os.path.join(get_log_dir(), 'slices')
 

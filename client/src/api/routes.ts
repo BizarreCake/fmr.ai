@@ -1,6 +1,8 @@
 import {Agent, Project} from "./types.ts";
 import {useQuery} from "react-query";
 import axios from "axios";
+import {agentListAtom} from "../state/models.ts";
+import {useSetAtom} from "jotai";
 
 
 export interface GetProjectParams {
@@ -30,6 +32,8 @@ export interface ListAgentsResponse {
 }
 
 export function useListAgentsQuery(params?: ListAgentsParams) {
+  const updateAgentList = useSetAtom(agentListAtom);
+
   return useQuery(['list-agents', params], async () => {
     const result = await axios.get('/api/projects/agents/list', {
       params,
@@ -37,5 +41,8 @@ export function useListAgentsQuery(params?: ListAgentsParams) {
     return result.data as ListAgentsResponse;
   }, {
     enabled: !!params?.project_uuid,
+    onSuccess(data) {
+      updateAgentList(data.agents);
+    }
   });
 }

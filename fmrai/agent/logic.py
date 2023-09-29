@@ -10,7 +10,7 @@ from fmrai.agent.api import TokenizedText
 from fmrai.analysis.attention import compute_attention_head_clustering
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import get_fmrai
-from fmrai.logging import get_log_dir, get_attention_head_plots_dir
+from fmrai.logging import get_log_dir, get_attention_head_plots_dir, get_computation_graph_dir
 
 
 @dataclass
@@ -19,7 +19,7 @@ class TextPredictionResult:
     result: TokenizedText
 
 
-def do_init_model(agent_state: AgentState):
+def do_generate_model_graph(agent_state: AgentState, *, root_dir: str, model_name: str):
     fmr = get_fmrai()
 
     with fmr.track() as tracker:
@@ -27,7 +27,11 @@ def do_init_model(agent_state: AgentState):
         graph = tracker.build_graph(output)
 
     nice_graph = graph.make_nice()
-    nice_graph.save(get_log_dir(), 'computation_graph', save_dot=True)
+
+    out_dir = get_computation_graph_dir(model_name, root_dir=root_dir)
+    os.makedirs(out_dir, exist_ok=True)
+
+    nice_graph.save(out_dir, 'graph', save_dot=True)
 
 
 def do_predict_text(agent_state: AgentState, text: str) -> TextPredictionResult:
