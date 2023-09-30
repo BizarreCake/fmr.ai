@@ -15,6 +15,7 @@ import ViewAttentionClusteringPage from "./pages/ViewAttentionClustering.tsx";
 import ProjectsPage from "./pages/Projects.tsx";
 import {ProjectLayout} from "./layouts/ProjectLayout.tsx";
 import ProjectAgentsPage from "./pages/project/Agents.tsx";
+import KeyValueMemoriesPage from "./pages/KeyValueMemories.tsx";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,10 @@ const router = createBrowserRouter([
       {
         path: '/project/:projectId/model/computation-graph',
         element: <ViewComputationGraphPage />,
+      },
+      {
+        path: '/project/:projectId/analysis/global/key-value-memories',
+        element: <KeyValueMemoriesPage />,
       },
     ]
   },

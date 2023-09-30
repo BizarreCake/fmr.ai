@@ -57,8 +57,12 @@ export const PROJECT_SIDEBAR = {
       items: [
         {
           text: 'Attention Heads',
-          path: '/analyze/global/attention/head-clustering',
+          path: '/analysis/global/attention/head-clustering',
         },
+        {
+          text: 'Key-Value Memories',
+          path: '/analysis/global/key-value-memories',
+        }
       ]
     },
     {
