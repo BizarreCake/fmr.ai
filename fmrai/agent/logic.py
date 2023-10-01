@@ -8,11 +8,11 @@ from pydantic import BaseModel
 
 from fmrai.agent import AgentState
 from fmrai.agent.api import TokenizedText
-from fmrai.analysis.attention import compute_attention_head_clustering, \
-    AttentionHeadClusteringResult
+from fmrai.analysis.attention import AttentionHeadClusteringResult
+from fmrai.analysis.attention import compute_attention_head_clustering
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import get_fmrai
-from fmrai.logging import get_log_dir, get_attention_head_plots_dir
+from fmrai.logging import get_attention_head_plots_dir, get_computation_graph_dir
 
 
 @dataclass
@@ -21,21 +21,25 @@ class TextPredictionResult:
     result: TokenizedText
 
 
-def do_init_model(agent_state: AgentState):
+def do_generate_model_graph(agent_state: AgentState, *, root_dir: str, model_name: str):
     fmr = get_fmrai()
 
-    with fmr.track_computations() as tracker:
+    with fmr.track() as tracker:
         output = agent_state.api.predict_zero()
         graph = tracker.build_graph(output)
 
     nice_graph = graph.make_nice()
-    nice_graph.save(get_log_dir(), 'computation_graph', save_dot=True)
+
+    out_dir = get_computation_graph_dir(model_name, root_dir=root_dir)
+    os.makedirs(out_dir, exist_ok=True)
+
+    nice_graph.save(out_dir, 'graph', save_dot=True)
 
 
 def do_predict_text(agent_state: AgentState, text: str) -> TextPredictionResult:
     fmr = get_fmrai()
 
-    with fmr.track_computations() as tracker:
+    with fmr.track() as tracker:
         with torch.no_grad():
             result = agent_state.api.predict_text_one(text)
         mp = tracker.build_map()
@@ -63,17 +67,17 @@ def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, l
     fmr = get_fmrai()
 
     # find attention heads first
-    with fmr.track_computations() as tracker:
+    with fmr.track() as tracker:
         y = agent_state.api.predict_zero()
         g = tracker.build_graph(y).make_nice()
 
     heads = list(find_multi_head_attention(g))
     attention_tensor_ids = [h.softmax_value.tensor_id for h in heads]
 
-    with fmr.track_computations() as tracker:
+    with fmr.track(track_tensors=attention_tensor_ids) as tracker:
         with torch.no_grad():
             agent_state.api.predict_text_many(ds, ds_info.text_column, limit=limit)
-        mp = tracker.build_map(tensors=attention_tensor_ids)
+        mp = tracker.build_map()
 
     result = compute_attention_head_clustering(mp, attention_tensor_ids)
     result.dataset_info = ds_info

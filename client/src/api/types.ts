@@ -1,5 +1,3 @@
-
-
 export interface Dataset {
   name: string;
   description: string;
@@ -12,7 +10,6 @@ export interface AttentionHeadPlotEntry {
   dataset_name: string;
   limit: null | number;
 }
-
 
 
 export interface AttentionHeadPoint {
@@ -41,4 +38,17 @@ export interface AttentionExtraction {
 }
 
 
+export interface Project {
+  uuid: string;
+  name: string;
+  description: null | string;
+}
+
+
+export interface Agent {
+  uuid: string;
+  name: string;
+  description: null | string;
+  model_name: string;
+}
 

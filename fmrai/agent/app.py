@@ -1,7 +1,7 @@
 import bottle
 
-from fmrai.agent.logic import do_predict_text, do_init_model, do_compute_attention_head_plot, \
-    do_list_attention_head_plot_inputs
+from fmrai.agent.logic import do_list_attention_head_plot_inputs
+from fmrai.agent.logic import do_predict_text, do_generate_model_graph, do_compute_attention_head_plot
 from fmrai.agent.state import get_global_agent_state
 
 app = bottle.Bottle()
@@ -14,12 +14,16 @@ def get_status():
     }
 
 
-@app.post('/model/init')
-def init_model():
+@app.post('/model/generate-graph')
+def generate_model_graph():
+    data = bottle.request.json
+    root_dir = data['root_dir']
+    model_name = data['model_name']
+
     agent_state = get_global_agent_state()
     assert agent_state.api is not None
 
-    do_init_model(agent_state)
+    do_generate_model_graph(agent_state, root_dir=root_dir, model_name=model_name)
 
 
 @app.post('/predict/text/one')

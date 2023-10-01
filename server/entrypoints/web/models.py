@@ -24,3 +24,20 @@ class AnalyzeModelFindAttentionOut(BaseModel):
 
 class AnalyzeTextExtractAttentionOut(BaseModel):
     batch: List[AttentionExtraction]
+
+
+class NewProjectIn(BaseModel):
+    name: str
+
+
+class AddAgentIn(BaseModel):
+    project_uuid: str
+    connect_url: str
+    agent_name: str
+    model_name: str
+
+
+class GenerateModelGraphIn(BaseModel):
+    project_uuid: str
+    agent_uuid: str
+    model_name: str

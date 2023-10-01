@@ -1,6 +1,7 @@
 from typing import List, Optional, Tuple
-from pydantic import BaseModel
+
 from datasets import Dataset
+from pydantic import BaseModel
 
 from fmrai.analysis.common import DatasetInfo
 

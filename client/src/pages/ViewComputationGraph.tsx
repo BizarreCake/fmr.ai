@@ -1,43 +1,36 @@
 import React, {useEffect, useState} from "react";
 import axios from "axios";
-import {Box, CircularProgress, Stack, Typography} from "@mui/material";
-import {useQuery} from "react-query";
+import {Box, CircularProgress, Stack, Typography, Card, Button, Alert} from "@mui/material";
+import {useMutation, useQuery, useQueryClient} from "react-query";
 
 import * as d3 from "d3";
 import "d3-graphviz";
-import {useNavigate} from "react-router";
+import {useNavigate, useParams} from "react-router";
+import {useAtomValue} from "jotai";
+import {currentModelAtom, useAgentByModelName} from "../state/models.ts";
+import {LoadingButton} from "@mui/lab";
 
 
-interface ModelGraphResponse {
-  dot: string;
+
+interface ModelGraphViewProps {
+  dot?: string;
+  loading: boolean;
 }
 
-
-function useModelGraphQuery() {
-  return useQuery('model-graph', async () => {
-    const result = await axios.get('/api/model/graph');
-    return result.data as ModelGraphResponse;
-  }, {
-    refetchOnWindowFocus: false,
-  });
-}
-
-
-function ModelGraphView() {
+function ModelGraphView(props: ModelGraphViewProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
-  const {data, isLoading} = useModelGraphQuery();
   const [rendering, setRendering] = useState(false);
   useEffect(() => {
-    if (data?.dot) {
+    if (props.dot) {
       const gv = d3.select(ref.current).graphviz();
       setRendering(true);
       gv
         .width('100%')
         .height('100%')
         .zoomScaleExtent([0.1, 50])
-        .renderDot(data.dot)
+        .renderDot(props.dot)
         .fit(true)
         .on('end', () => {
           const svg = d3.select(ref.current).select('svg');
@@ -82,9 +75,9 @@ function ModelGraphView() {
           setRendering(false);
         });
     }
-  }, [data]);
+  }, [props]);
 
-  const loading = isLoading || rendering;
+  const loading = props.loading || rendering;
 
   return (
     <>
@@ -125,7 +118,117 @@ function ModelGraphView() {
 }
 
 
+interface GenerateModelGraphParams {
+  project_uuid: string;
+  agent_uuid: string;
+  model_name: string;
+}
+
+interface GenerateModelGraphResponse {
+
+}
+
+function useGenerateModelGraphMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: GenerateModelGraphParams) => {
+      const result = await axios.post('/api/model-graph/generate', params);
+      return result.data as GenerateModelGraphResponse;
+    },
+    onSuccess() {
+      queryClient.invalidateQueries('model-graph');
+    }
+  })
+}
+
+
+function NoGraphAvailable() {
+  const currentModel = useAtomValue(currentModelAtom);
+
+  const { projectId } = useParams();
+  const agent = useAgentByModelName(currentModel);
+  const generateGraph = useGenerateModelGraphMutation();
+  const handleGenerate = async () => {
+    if (!projectId || !agent)
+      return;
+
+    await generateGraph.mutateAsync({
+      project_uuid: projectId,
+      agent_uuid: agent.uuid,
+      model_name: agent.model_name,
+    });
+  };
+
+  return (
+    <Stack
+      sx={{
+        height: '100%',
+        backgroundColor: '#ffffff',
+        opacity: 0.8,
+        backgroundImage: 'repeating-radial-gradient( circle at 0 0, transparent 0, #ffffff 10px ), repeating-linear-gradient( #d8eaff55, #d8eaff )',
+      }}
+      justifyContent="center"
+      alignItems="center"
+    >
+      <Card sx={{ p: 3 }}>
+        {!currentModel && (
+          <Alert severity="info">
+            There is no model available. Please connect an agent to this project.
+          </Alert>
+        )}
+
+        {currentModel && (
+          <Stack spacing={3}>
+            <Typography>
+              A model graph of <b>{currentModel}</b> has not been generated yet for this project.
+            </Typography>
+
+            <LoadingButton
+              variant="contained"
+              onClick={handleGenerate}
+              loading={generateGraph.isLoading}
+            >
+              Generate Graph
+            </LoadingButton>
+          </Stack>
+        )}
+      </Card>
+    </Stack>
+  )
+}
+
+
+interface GetModelGraphParams {
+  project_uuid: string;
+  model_name: string;
+}
+
+interface GetModelGraphResponse {
+  dot: string;
+}
+
+function useGetModelGraphQuery(params: null | GetModelGraphParams) {
+  return useQuery(['model-graph', params], async () => {
+    const result = await axios.get('/api/model-graph', {params});
+    return result.data as GetModelGraphResponse;
+  }, {
+    refetchOnWindowFocus: false,
+    enabled: params !== null,
+    retry: false,
+  });
+}
+
+
 export default function ViewComputationGraphPage() {
+  const { projectId } = useParams();
+  const currentModel = useAtomValue(currentModelAtom);
+  const { data, isLoading, error } = useGetModelGraphQuery(
+    (projectId && currentModel) ? {
+      project_uuid: projectId,
+      model_name: currentModel,
+    } : null
+  );
+
   return (
     <Box
       sx={{
@@ -133,7 +236,11 @@ export default function ViewComputationGraphPage() {
         inset: 0,
       }}
     >
-      <ModelGraphView/>
+      {(isLoading || data?.dot) ? (
+        <ModelGraphView dot={data?.dot} loading={isLoading} />
+      ) : (
+        <NoGraphAvailable />
+      )}
     </Box>
   );
 }

@@ -12,11 +12,33 @@ import HomePage from './pages/Home.tsx';
 import AttentionHomePage from "./pages/AttentionHome.tsx";
 import AttentionClusteringPage from "./pages/AttentionClustering.tsx";
 import ViewAttentionClusteringPage from "./pages/ViewAttentionClustering.tsx";
+import ProjectsPage from "./pages/Projects.tsx";
+import {ProjectLayout} from "./layouts/ProjectLayout.tsx";
+import ProjectAgentsPage from "./pages/project/Agents.tsx";
+import KeyValueMemoriesPage from "./pages/KeyValueMemories.tsx";
 
 const queryClient = new QueryClient();
 
 
 const router = createBrowserRouter([
+  {
+    path: '/project/:projectId',
+    element: <ProjectLayout />,
+    children: [
+      {
+        path: '/project/:projectId/agents',
+        element: <ProjectAgentsPage />,
+      },
+      {
+        path: '/project/:projectId/model/computation-graph',
+        element: <ViewComputationGraphPage />,
+      },
+      {
+        path: '/project/:projectId/analysis/global/key-value-memories',
+        element: <KeyValueMemoriesPage />,
+      },
+    ]
+  },
   {
     path: '/',
     element: <MainLayout />,
@@ -26,12 +48,12 @@ const router = createBrowserRouter([
         element: <HomePage />,
       },
       {
-        path: '/model',
-        element: <ModelHomePage />,
+        path: '/projects',
+        element: <ProjectsPage />,
       },
       {
-        path: '/model/computation-graph',
-        element: <ViewComputationGraphPage />,
+        path: '/model',
+        element: <ModelHomePage />,
       },
       {
         path: '/tensor/:tensorId',
