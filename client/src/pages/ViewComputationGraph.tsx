@@ -143,10 +143,10 @@ function useGenerateModelGraphMutation() {
 
 
 function NoGraphAvailable() {
-  const currentModel = useAtomValue(currentModelAtom);
-
   const { projectId } = useParams();
+  const currentModel = useAtomValue(currentModelAtom);
   const agent = useAgentByModelName(currentModel);
+
   const generateGraph = useGenerateModelGraphMutation();
   const handleGenerate = async () => {
     if (!projectId || !agent)

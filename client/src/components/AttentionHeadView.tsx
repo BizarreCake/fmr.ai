@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from "react";
 import * as d3 from "d3";
 import useResizeObserver from "@react-hook/resize-observer";
-import {Box, Card} from "@mui/material";
+import {Card} from "@mui/material";
 import {AttentionHeadExtraction, TokenizationResult} from "../api/types";
 
 export interface AttentionHeadViewProps {

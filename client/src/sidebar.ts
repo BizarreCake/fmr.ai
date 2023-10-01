@@ -67,7 +67,7 @@ export const PROJECT_SIDEBAR = {
       items: [
         {
           text: 'Analyze Text',
-          path: '/analyze/local/text',
+          path: '/analysis/local/text',
         },
       ]
     }

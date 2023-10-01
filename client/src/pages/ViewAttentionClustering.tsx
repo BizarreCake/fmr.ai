@@ -13,6 +13,8 @@ import * as d3 from 'd3';
 import {ArrowBack} from "@mui/icons-material";
 import {Link} from "react-router-dom";
 import {AttentionHeadView} from "../components/AttentionHeadView.tsx";
+import {useAtomValue} from "jotai";
+import {currentModelAtom, useAgentByModelName} from "../state/models.ts";
 
 
 interface LocalContextValue {
@@ -25,6 +27,7 @@ const LocalContext = createContext<null | LocalContextValue>(null);
 
 
 interface GetAttentionHeadPlotParams {
+  project_uuid?: string;
   key?: string;
 }
 
@@ -40,7 +43,7 @@ function useGetAttentionHeadPlotQuery(params: GetAttentionHeadPlotParams) {
     );
     return result.data as GetAttentionHeadPlotResponse;
   }, {
-    enabled: Boolean(params.key),
+    enabled: Boolean(params.key) && Boolean(params.project_uuid),
   });
 }
 
@@ -175,8 +178,11 @@ interface LeftPaneProps {
 }
 
 function LeftPane(props: LeftPaneProps) {
-  const {key} = useParams();
-  const {data, isLoading} = useGetAttentionHeadPlotQuery({key});
+  const {projectId, key} = useParams();
+  const {data, isLoading} = useGetAttentionHeadPlotQuery({
+    project_uuid: projectId,
+    key
+  });
 
   return (
     <>
@@ -218,6 +224,8 @@ function LeftPane(props: LeftPaneProps) {
 
 
 interface AnalyzeAttentionHeadInputsParams {
+  project_uuid: string;
+  agent_uuid: string;
   key: string;
   tensor_id: string;
   head_index: number;
@@ -253,13 +261,17 @@ function useAnalyzeAttentionHeadInputsQuery(params: null | AnalyzeAttentionHeadI
 
 
 function RightPane() {
-  const {key} = useParams();
+  const {projectId, key} = useParams();
+  const currentModel = useAtomValue(currentModelAtom);
+  const agent = useAgentByModelName(currentModel);
   const context = useContext(LocalContext);
 
   console.log('rp', context?.selectedHead);
 
   const {data, isLoading} = useAnalyzeAttentionHeadInputsQuery(
-    key && context?.selectedHead ? {
+    projectId && agent && key && context?.selectedHead ? {
+      project_uuid: projectId,
+      agent_uuid: agent.uuid,
       key,
       tensor_id: context.selectedHead.tensor_id,
       head_index: context.selectedHead.head_index,
@@ -279,7 +291,7 @@ function RightPane() {
         <Grid container spacing={2}>
           {data.inputs.map((input, i) => (
             <Grid item xs={4} key={i}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{mb: 1}}>
                 {input.text}
               </Typography>
 
@@ -327,7 +339,7 @@ export default function ViewAttentionClusteringPage() {
           {rightPaneVisible && (
             <Box sx={{flex: 1, borderLeft: 'solid 1px #ddd', height: '100%', position: 'relative'}}>
               <Box sx={{position: 'absolute', inset: 0, overflow: 'auto'}}>
-                <RightPane />
+                <RightPane/>
               </Box>
             </Box>
           )}

@@ -12,7 +12,7 @@ from fmrai.analysis.attention import AttentionHeadClusteringResult
 from fmrai.analysis.attention import compute_attention_head_clustering
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import get_fmrai
-from fmrai.logging import get_attention_head_plots_dir, get_computation_graph_dir
+from fmrai.logging import get_attention_head_plots_dir, get_computation_graph_dir, get_computation_map_dir
 
 
 @dataclass
@@ -36,17 +36,24 @@ def do_generate_model_graph(agent_state: AgentState, *, root_dir: str, model_nam
     nice_graph.save(out_dir, 'graph', save_dot=True)
 
 
-def do_predict_text(agent_state: AgentState, text: str) -> TextPredictionResult:
+def do_predict_text(
+        agent_state: AgentState,
+        text: str,
+        *,
+        root_dir: str,
+) -> TextPredictionResult:
     fmr = get_fmrai()
 
     with fmr.track() as tracker:
         with torch.no_grad():
             result = agent_state.api.predict_text_one(text)
         mp = tracker.build_map()
-        print('mp', len(mp.data))
 
     map_key = os.urandom(8).hex()
-    mp.save(map_key)
+    out_dir = get_computation_map_dir(map_key, root_dir=root_dir)
+    os.makedirs(out_dir, exist_ok=True)
+
+    mp.save_to_dir(out_dir)
 
     return TextPredictionResult(
         activation_map_key=map_key,
@@ -59,7 +66,13 @@ class AttentionHeadPoint(BaseModel):
     y: float
 
 
-def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, limit: Optional[int]):
+def do_compute_attention_head_plot(
+        agent_state: AgentState,
+        dataset_name: str,
+        limit: Optional[int],
+        *,
+        root_dir: str,
+):
     ds, ds_info = agent_state.api.load_dataset(dataset_name)
     if limit is not None:
         ds = ds.select(range(limit))
@@ -84,7 +97,7 @@ def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, l
     result.limit = limit
 
     # save plot
-    out_dir_path = get_attention_head_plots_dir(result.key)
+    out_dir_path = get_attention_head_plots_dir(result.key, root_dir=root_dir)
     os.makedirs(out_dir_path, exist_ok=True)
     out_path = os.path.join(out_dir_path, 'js.json')
     with open(out_path, 'w') as f:
@@ -103,11 +116,17 @@ def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, l
     }
 
 
-def do_list_attention_head_plot_inputs(agent_state: AgentState, key: str, limit: Optional[int]):
-    with open(os.path.join(get_attention_head_plots_dir(key), 'js.json')) as f:
+def do_list_attention_head_plot_inputs(
+        agent_state: AgentState,
+        key: str,
+        limit: Optional[int],
+        *,
+        root_dir: str,
+):
+    with open(os.path.join(get_attention_head_plots_dir(key, root_dir=root_dir), 'js.json')) as f:
         ds_info = AttentionHeadClusteringResult.model_validate_json(f.read()).dataset_info
 
-    ds_dir = os.path.join(get_attention_head_plots_dir(key), 'inputs')
+    ds_dir = os.path.join(get_attention_head_plots_dir(key, root_dir=root_dir), 'inputs')
     ds = datasets.load_from_disk(ds_dir)
     if limit is not None:
         ds = ds.select(range(min(limit, len(ds))))

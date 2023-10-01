@@ -54,7 +54,7 @@ function AgentList() {
       {isLoading && <CircularProgress sx={{display: 'table', mx: 'auto'}}/>}
       {!isLoading && data && (
         <>
-          <Stack spacing={2} sx={{mb: 3}}>
+          <Stack spacing={2} sx={{mb: 2}}>
             {data.agents.map(agent => (
               <Card key={agent.uuid} sx={{p: 3}}>
                 <table>

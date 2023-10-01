@@ -16,9 +16,14 @@ import {useState} from "react";
 import {LoadingButton} from "@mui/lab";
 import {AttentionHeadExtraction, TokenizationResult} from "../api/types";
 import {AttentionHeadView} from "../components/AttentionHeadView.tsx";
+import {useParams} from "react-router";
+import {useAtomValue} from "jotai";
+import {currentModelAtom, useAgentByModelName} from "../state/models.ts";
 
 
 interface AnalyzeTextPredictParams {
+  project_uuid: string;
+  agent_uuid: string;
   text: string;
 }
 
@@ -38,6 +43,7 @@ function useAnalyzeTextPredictMutation() {
 
 
 interface AnalyzeTextExtractAttentionParams {
+  project_uuid?: string;
   key: string;
   tensor_id: string;
 }
@@ -62,6 +68,8 @@ function useAnalyzeTextExtractAttentionQuery(params: AnalyzeTextExtractAttention
       );
 
       return result.data as AnalyzeTextExtractAttentionResponse;
+    }, {
+      enabled: params.project_uuid !== null,
     });
 }
 
@@ -102,7 +110,9 @@ interface AttentionLayerViewProps {
 
 
 function AttentionLayerView(props: AttentionLayerViewProps) {
+  const { projectId } = useParams();
   const {data, isLoading} = useAnalyzeTextExtractAttentionQuery({
+    project_uuid: projectId,
     key: props.cmapKey,
     tensor_id: props.tensorId,
   });
@@ -139,17 +149,25 @@ interface AttentionExtractionInstance {
   num_heads: number;
 }
 
+interface AnalyzeModelFindAttentionParams {
+  project_uuid: string;
+  model_name: string;
+}
+
 interface AnalyzeModelFindAttentionResponse {
   instances: AttentionExtractionInstance[];
 }
 
-function useAnalyzeModelFindAttentionQuery() {
+function useAnalyzeModelFindAttentionQuery(params: null | AnalyzeModelFindAttentionParams) {
   return useQuery('model-attention', async () => {
     const result = await axios.get(
       '/api/analyze/model/find_attention',
+      { params, }
     );
 
     return result.data as AnalyzeModelFindAttentionResponse;
+  }, {
+    enabled: params !== null,
   });
 }
 
@@ -160,7 +178,14 @@ interface AttentionSectionProps {
 
 
 function AttentionSection(props: AttentionSectionProps) {
-  const {data, isLoading} = useAnalyzeModelFindAttentionQuery();
+  const { projectId } = useParams();
+  const currentModel = useAtomValue(currentModelAtom);
+  const {data, isLoading} = useAnalyzeModelFindAttentionQuery(
+    projectId && currentModel ? {
+      project_uuid: projectId,
+      model_name: currentModel,
+    } : null
+  );
 
   return (
     <Box>
@@ -189,9 +214,18 @@ export default function AnalyzeTextPage() {
   const analyzeText = useAnalyzeTextPredictMutation();
   const [result, setResult] = useState<AnalyzeTextPredictResponse | null>(null);
 
+  const { projectId } = useParams();
+  const currentModel = useAtomValue(currentModelAtom);
+  const agent = useAgentByModelName(currentModel);
+
   const [text, setText] = useState('');
   const handleSubmit = async () => {
+    if (!projectId || !agent)
+      return;
+
     const result = await analyzeText.mutateAsync({
+      project_uuid: projectId,
+      agent_uuid: agent.uuid,
       text,
     });
 

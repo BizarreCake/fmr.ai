@@ -12,19 +12,30 @@ import {
 import axios from "axios";
 import {useQuery} from "react-query";
 import { Dataset } from "../api/types";
+import {useParams} from "react-router";
+import { useAtomValue } from "jotai";
+import {currentModelAtom, useAgentByModelName} from "../state/models.ts";
 
 
+
+interface ListDatasetsParams {
+  project_uuid: string;
+  agent_uuid: string;
+}
 
 interface ListDatasetsResponse {
   datasets: Dataset[];
 }
 
-function useListDatasetsQuery() {
+function useListDatasetsQuery(params: null | ListDatasetsParams) {
   return useQuery('list-datasets', async () => {
     const result = await axios.get(
       '/api/datasets/list',
+      { params, },
     );
     return result.data as ListDatasetsResponse;
+  }, {
+    enabled: params !== null,
   });
 }
 
@@ -37,7 +48,15 @@ export interface ChooseDatasetDialogProps {
 
 
 export function ChooseDatasetDialog(props: ChooseDatasetDialogProps) {
-  const {data, isLoading} = useListDatasetsQuery();
+  const { projectId } = useParams();
+  const currentModel = useAtomValue(currentModelAtom);
+  const agent = useAgentByModelName(currentModel);
+  const {data, isLoading} = useListDatasetsQuery(
+    projectId && agent ? {
+      project_uuid: projectId,
+      agent_uuid: agent.uuid,
+    } : null
+  );
 
   const handleClickDataset = (dataset: Dataset) => {
     props.onSelect(dataset);

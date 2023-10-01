@@ -30,11 +30,12 @@ def generate_model_graph():
 def predict_text_one():
     data = bottle.request.json
     text = data['text']
+    root_dir = data['root_dir']
 
     agent_state = get_global_agent_state()
     assert agent_state.api is not None
 
-    result = do_predict_text(agent_state, text)
+    result = do_predict_text(agent_state, text, root_dir=root_dir)
     print('predict:', result)
 
     return {
@@ -56,11 +57,14 @@ def compute_attention_head_plot():
     data = bottle.request.json
     dataset_name = data['dataset']
     limit = data['limit']
+    root_dir = data['root_dir']
 
     agent_state = get_global_agent_state()
     assert agent_state.api is not None
 
-    return do_compute_attention_head_plot(agent_state, dataset_name, limit)
+    return do_compute_attention_head_plot(
+        agent_state, dataset_name, limit, root_dir=root_dir
+    )
 
 
 @app.post('/analyze/attention/head_plot/list_inputs')
@@ -68,8 +72,11 @@ def list_attention_head_plot_inputs():
     data = bottle.request.json
     key = data['key']
     limit = data.get('limit', 100)
+    root_dir = data['root_dir']
 
     agent_state = get_global_agent_state()
     assert agent_state.api is not None
 
-    return do_list_attention_head_plot_inputs(agent_state, key, limit)
+    return do_list_attention_head_plot_inputs(
+        agent_state, key, limit, root_dir=root_dir
+    )

@@ -41,14 +41,22 @@ def get_tensor_info_path(name: str, time_step: int, *, tensor_dir: Optional[str]
     return os.path.join(tensor_dir, f't{time_step}.json')
 
 
-def get_computation_map_dir(name: str):
-    return os.path.join(get_log_dir(), 'computation_maps', name)
+def get_computation_map_dir(name: str, *, root_dir: Optional[str] = None):
+    p = os.path.join('computation_maps', name)
+    if root_dir:
+        p = os.path.join(root_dir, p)
+    return p
 
 
-def get_attention_head_plots_dir(key: Optional[str] = None):
+def get_attention_head_plots_dir(key: Optional[str] = None, *, root_dir: Optional[str] = None):
     if key is None:
-        return os.path.join(get_log_dir(), 'attention_head_plots')
-    return os.path.join(get_attention_head_plots_dir(None), key)
+        p = 'attention_head_plots'
+    else:
+        p = os.path.join(get_attention_head_plots_dir(None), key)
+
+    if root_dir:
+        p = os.path.join(root_dir, p)
+    return p
 
 
 def _model_to_json(model):

@@ -467,9 +467,6 @@ class ComputationMap:
     def save_to_dir(self, dir_path: str, time_step: int = 0):
         raise NotImplementedError()
 
-    def save(self, key: str, time_step: int = 0):
-        self.save_to_dir(get_computation_map_dir(key), time_step=time_step)
-
     def get(self, tensor_id: TensorId) -> List[Tensor]:
         raise NotImplementedError()
 
