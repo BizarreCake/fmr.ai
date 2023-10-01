@@ -1,6 +1,7 @@
 import bottle
 
-from fmrai.agent.logic import do_predict_text, do_init_model, do_compute_attention_head_plot
+from fmrai.agent.logic import do_predict_text, do_init_model, do_compute_attention_head_plot, \
+    do_list_attention_head_plot_inputs
 from fmrai.agent.state import get_global_agent_state
 
 app = bottle.Bottle()
@@ -46,7 +47,7 @@ def list_datasets():
     return agent_state.api.list_datasets().model_dump()
 
 
-@app.post('/analyze/attention/compute_attention_head_plot')
+@app.post('/analyze/attention/head_plot/compute')
 def compute_attention_head_plot():
     data = bottle.request.json
     dataset_name = data['dataset']
@@ -56,3 +57,15 @@ def compute_attention_head_plot():
     assert agent_state.api is not None
 
     return do_compute_attention_head_plot(agent_state, dataset_name, limit)
+
+
+@app.post('/analyze/attention/head_plot/list_inputs')
+def list_attention_head_plot_inputs():
+    data = bottle.request.json
+    key = data['key']
+    limit = data.get('limit', 100)
+
+    agent_state = get_global_agent_state()
+    assert agent_state.api is not None
+
+    return do_list_attention_head_plot_inputs(agent_state, key, limit)

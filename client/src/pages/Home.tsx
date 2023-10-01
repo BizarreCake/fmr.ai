@@ -45,7 +45,7 @@ const PAPERS: Paper[] = [
     features: [
       {
         title: "Attention head clustering",
-        status: PaperFeatureStatus.COMING_SOON,
+        status: PaperFeatureStatus.IMPLEMENTED,
       },
     ],
   },

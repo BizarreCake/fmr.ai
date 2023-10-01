@@ -8,7 +8,8 @@ from torch import nn
 
 from fmrai import fmrai
 from fmrai.agent import run_agent, AgentAPI
-from fmrai.agent.api import TokenizedText, AgentDatasetList, AgentDatasetInfo
+from fmrai.agent.api import TokenizedText, AgentDatasetList
+from fmrai.analysis.common import DatasetInfo
 from fmrai.analysis.attention import compute_attention_head_divergence_matrix
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import Fmrai
@@ -112,7 +113,7 @@ def create_bert_api():
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
     dataset_infos = [
-        AgentDatasetInfo(
+        DatasetInfo(
             name='glue/sst2',
             text_column='sentence',
         )
@@ -155,7 +156,7 @@ def create_bert_api():
                 datasets=dataset_infos,
             )
 
-        def load_dataset(self, name: str) -> Optional[Tuple[Dataset, AgentDatasetInfo]]:
+        def load_dataset(self, name: str) -> Optional[Tuple[Dataset, DatasetInfo]]:
             if name == 'glue/sst2':
                 return (
                     datasets.load_dataset('glue', 'sst2', split='validation'),

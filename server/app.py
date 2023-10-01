@@ -134,7 +134,7 @@ def compute_attention_head_plot(
 ):
     agent_addr = find_agent_host()
     r = requests.post(
-        f'{agent_addr}/analyze/attention/compute_attention_head_plot',
+        f'{agent_addr}/analyze/attention/head_plot/compute',
         json={
             'dataset': dataset_name,
             'limit': limit,
@@ -158,7 +158,7 @@ def list_attention_head_plots():
             results.append({
                 'key': key,
                 'created_at': result.created_at,
-                'dataset_name': result.dataset_name,
+                'dataset_name': result.dataset_info.name,
                 'limit': result.limit,
             })
 
@@ -191,11 +191,32 @@ def analyze_attention_head_inputs(
         head_index: int,
         limit: Optional[int] = None,
 ):
-    print('aahi', key, tensor_id, head_index, limit)
     plot_dir = get_attention_head_plots_dir(key)
-
     if not os.path.isdir(plot_dir):
         raise HTTPException(status_code=404)
+
+    # get tokenized inputs
+    agent_addr = find_agent_host()
+    r = requests.post(
+        f'{agent_addr}/analyze/attention/head_plot/list_inputs',
+        json={
+            'key': key,
+            'limit': limit,
+        }
+    )
+
+    # load tensors
+    cmap = LazyComputationMap.load_from(os.path.join(plot_dir, 'tensors'))
+
+    # extract attention
+    assert tensor_id.startswith('#')
+    tensor_id = OrdinalTensorId(ordinal=int(tensor_id[1:]))
+    extraction = extract_attention_values(cmap, tensor_id, head_index=head_index, instance_range=range(limit))
+
+    return {
+        'inputs': r.json()['inputs'],
+        'extraction': extraction,
+    }
 
 
 @app.get('/api/datasets/list')

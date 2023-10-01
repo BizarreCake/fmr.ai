@@ -26,3 +26,19 @@ export interface AttentionHeadPlotEntryWithData extends AttentionHeadPlotEntry {
   mds: AttentionHeadPoint[];
 }
 
+
+export interface TokenizationResult {
+  token_ids: number[];
+  token_names: string[];
+}
+
+export interface AttentionHeadExtraction {
+  matrix: number[][];
+}
+
+export interface AttentionExtraction {
+  heads: AttentionHeadExtraction[];
+}
+
+
+

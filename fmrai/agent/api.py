@@ -1,9 +1,8 @@
-from dataclasses import dataclass
-from typing import List, Optional, Iterable, Tuple
+from typing import List, Optional, Tuple
 from pydantic import BaseModel
 from datasets import Dataset
 
-from fmrai.tracker import TensorId
+from fmrai.analysis.common import DatasetInfo
 
 
 class TokenizedText(BaseModel):
@@ -11,14 +10,8 @@ class TokenizedText(BaseModel):
     token_names: List[str]
 
 
-class AgentDatasetInfo(BaseModel):
-    name: str
-    text_column: Optional[str] = None
-    description: Optional[str] = None
-
-
 class AgentDatasetList(BaseModel):
-    datasets: List[AgentDatasetInfo]
+    datasets: List[DatasetInfo]
 
 
 class AgentAPI:
@@ -50,5 +43,5 @@ class AgentAPI:
     def list_datasets(self) -> AgentDatasetList:
         return AgentDatasetList(datasets=[])
 
-    def load_dataset(self, name: str) -> Optional[Tuple[Dataset, AgentDatasetInfo]]:
+    def load_dataset(self, name: str) -> Optional[Tuple[Dataset, DatasetInfo]]:
         return None

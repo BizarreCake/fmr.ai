@@ -9,6 +9,7 @@ from datasets import Dataset
 
 from pydantic import BaseModel
 
+from fmrai.analysis.common import DatasetInfo
 from fmrai.fmrai import Fmrai
 from fmrai.tracker import ComputationMap, TensorId, LazyComputationMap, OrdinalTensorId
 
@@ -24,6 +25,8 @@ class AttentionExtraction(BaseModel):
 def extract_attention_values(
         cmap: ComputationMap,
         tensor_id: TensorId,
+        head_index: Optional[int] = None,
+        instance_range=None,
 ) -> List[AttentionExtraction]:
     tensor = cmap.get(tensor_id)
 
@@ -32,9 +35,18 @@ def extract_attention_values(
 
     extractions = []
 
-    for i in range(batch_size):
+    if instance_range is None:
+        instance_range = range(batch_size)
+
+    for i in instance_range:
+        if i >= batch_size:
+            break
+
         heads = []
         for j in range(num_heads):
+            if head_index is not None and head_index != j:
+                continue
+
             head_tensor = tensor[i, j, :, :]
             heads.append(AttentionHeadExtraction(
                 matrix=head_tensor.cpu().tolist(),
@@ -117,14 +129,14 @@ class AttentionHeadClusteringResult(BaseModel):
     key: str
     created_at: float
     mds: List[AttentionHeadPoint]
-    dataset_name: Optional[str] = None
+    dataset_info: Optional[DatasetInfo] = None
     limit: Optional[int] = None
 
 
 def compute_attention_head_clustering(
         cmap: ComputationMap,
         attention_tensors: List[TensorId],
-):
+) -> AttentionHeadClusteringResult:
     distance_matrix = compute_attention_head_divergence_matrix(
         cmap,
         attention_tensors,
@@ -162,13 +174,6 @@ def compute_attention_head_clustering(
         created_at=time.time(),
         mds=heads,
     )
-
-
-def compute_attention_head_values_for_inputs(
-        cmap: ComputationMap,
-        attention_tensor_ids: List[TensorId],
-):
-    pass
 
 
 def test_extract_attention():

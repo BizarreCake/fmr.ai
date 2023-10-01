@@ -1,15 +1,15 @@
-import json
 import os
 from dataclasses import dataclass
-from typing import List, Optional
-from pydantic import BaseModel
-import numpy as np
+from typing import Optional
 
+import datasets
 import torch
+from pydantic import BaseModel
 
 from fmrai.agent import AgentState
 from fmrai.agent.api import TokenizedText
-from fmrai.analysis.attention import compute_attention_head_divergence_matrix, compute_attention_head_clustering
+from fmrai.analysis.attention import compute_attention_head_clustering, \
+    AttentionHeadClusteringResult
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import get_fmrai
 from fmrai.logging import get_log_dir, get_attention_head_plots_dir
@@ -55,14 +55,10 @@ class AttentionHeadPoint(BaseModel):
     y: float
 
 
-class AttentionHeadClusteringResult(BaseModel):
-    dataset_name: str
-    limit: Optional[int]
-    mds: List[AttentionHeadPoint]
-
-
-def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, limit: int):
+def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, limit: Optional[int]):
     ds, ds_info = agent_state.api.load_dataset(dataset_name)
+    if limit is not None:
+        ds = ds.select(range(limit))
 
     fmr = get_fmrai()
 
@@ -80,7 +76,7 @@ def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, l
         mp = tracker.build_map(tensors=attention_tensor_ids)
 
     result = compute_attention_head_clustering(mp, attention_tensor_ids)
-    result.dataset_name = dataset_name
+    result.dataset_info = ds_info
     result.limit = limit
 
     # save plot
@@ -96,20 +92,39 @@ def do_compute_attention_head_plot(agent_state: AgentState, dataset_name: str, l
     mp.save_to_dir(tensor_dir_path)
 
     # save inputs
-    # inputs = []
-    # for i, x in enumerate(ds):
-    #     if limit is not None and i >= limit:
-    #         break
-    #     text = x[ds_info.text_column]
-    #     tokenized = agent_state.api.tokenize_text(text)
-    #     inputs.append({
-    #         'text': text,
-    #         'token_ids': tokenized.token_ids,
-    #         'token_names': tokenized.token_names,
-    #     })
-    #
     ds.save_to_disk(os.path.join(out_dir_path, 'inputs'))
 
     return {
         'key': result.key,
+    }
+
+
+def do_list_attention_head_plot_inputs(agent_state: AgentState, key: str, limit: Optional[int]):
+    with open(os.path.join(get_attention_head_plots_dir(key), 'js.json')) as f:
+        ds_info = AttentionHeadClusteringResult.model_validate_json(f.read()).dataset_info
+
+    ds_dir = os.path.join(get_attention_head_plots_dir(key), 'inputs')
+    ds = datasets.load_from_disk(ds_dir)
+    if limit is not None:
+        ds = ds.select(range(min(limit, len(ds))))
+
+    # tokenize
+    def tokenizer(x):
+        tokenization = agent_state.api.tokenize_text(x[ds_info.text_column])
+        return {
+            'token_ids': tokenization.token_ids,
+            'token_names': tokenization.token_names,
+        }
+
+    tok_ds = ds.map(tokenizer)
+
+    return {
+        'inputs': [
+            {
+                'text': x[ds_info.text_column],
+                'token_ids': x['token_ids'],
+                'token_names': x['token_names'],
+            }
+            for x in tok_ds
+        ]
     }

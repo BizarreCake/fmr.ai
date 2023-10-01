@@ -1,12 +1,18 @@
-import {Box, CircularProgress, Container, IconButton, Stack, Typography} from "@mui/material";
+import {Box, CircularProgress, Container, Grid, IconButton, Stack, Typography} from "@mui/material";
 import {useParams} from "react-router";
 import {useQuery} from "react-query";
 import axios from "axios";
-import {AttentionHeadPlotEntryWithData, AttentionHeadPoint} from "../api/types.ts";
+import {
+  AttentionExtraction,
+  AttentionHeadPlotEntryWithData,
+  AttentionHeadPoint,
+  TokenizationResult
+} from "../api/types.ts";
 import {createContext, useContext, useEffect, useMemo, useRef, useState} from "react";
 import * as d3 from 'd3';
 import {ArrowBack} from "@mui/icons-material";
 import {Link} from "react-router-dom";
+import {AttentionHeadView} from "../components/AttentionHeadView.tsx";
 
 
 interface LocalContextValue {
@@ -200,7 +206,7 @@ function LeftPane(props: LeftPaneProps) {
           height: '600px',
         }}
       >
-        {isLoading && <CircularProgress />}
+        {isLoading && <CircularProgress/>}
 
         {!isLoading && data && (
           <HeadPlot data={data.result}/>
@@ -215,18 +221,23 @@ interface AnalyzeAttentionHeadInputsParams {
   key: string;
   tensor_id: string;
   head_index: number;
-  limit: number;
+  limit?: number;
+}
+
+interface AttentionHeadInput extends TokenizationResult {
+  text: string;
 }
 
 interface AnalyzeAttentionHeadInputsResponse {
-
+  inputs: AttentionHeadInput[];
+  extraction: AttentionExtraction[];
 }
 
 function useAnalyzeAttentionHeadInputsQuery(params: null | AnalyzeAttentionHeadInputsParams) {
-  return useQuery('analyze-attention-head-inputs', async () => {
+  return useQuery(['analyze-attention-head-inputs', params], async () => {
     const result = await axios.get(
       '/api/analyze/attention/head_plot/inputs',
-      params ? { params, } : {},
+      params ? {params,} : {},
     );
 
     return result.data as AnalyzeAttentionHeadInputsResponse;
@@ -240,24 +251,47 @@ function useAnalyzeAttentionHeadInputsQuery(params: null | AnalyzeAttentionHeadI
 //
 // }
 
+
 function RightPane() {
   const {key} = useParams();
   const context = useContext(LocalContext);
+
+  console.log('rp', context?.selectedHead);
 
   const {data, isLoading} = useAnalyzeAttentionHeadInputsQuery(
     key && context?.selectedHead ? {
       key,
       tensor_id: context.selectedHead.tensor_id,
       head_index: context.selectedHead.head_index,
-      limit: 10,
+      limit: 20,
     } : null);
 
   return (
-    <>
-      <Typography>
-        {JSON.stringify(context?.selectedHead)}
-      </Typography>
-    </>
+    <Box sx={{p: 3}}>
+      {isLoading && (
+        <Stack alignItems="center" spacing={2} sx={{mt: 5}}>
+          <CircularProgress/>
+          <Typography variant="body2">Loading data...</Typography>
+        </Stack>
+      )}
+
+      {!isLoading && data && (
+        <Grid container spacing={2}>
+          {data.inputs.map((input, i) => (
+            <Grid item xs={4} key={i}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {input.text}
+              </Typography>
+
+              <AttentionHeadView
+                tokenization={input}
+                data={data.extraction[i].heads[0]}
+              />
+            </Grid>
+          ))}
+        </Grid>
+      )}
+    </Box>
   )
 }
 
@@ -277,23 +311,24 @@ export default function ViewAttentionClusteringPage() {
     <Box
       sx={{
         height: '100%'
-    }}
+      }}
     >
       <LocalContext.Provider value={contextValue}>
         <Stack
           direction="row"
-          sx={{ height: '100%' }}
+          sx={{height: '100%'}}
         >
-          <Box sx={{ flex: 1 }}>
+          <Box sx={{flex: 1}}>
             <LeftPane
               fullWidth={!rightPaneVisible}
             />
           </Box>
 
           {rightPaneVisible && (
-            <Box sx={{ flex: 1, borderLeft: 'solid 1px #ddd' }}>
-              <RightPane
-              />
+            <Box sx={{flex: 1, borderLeft: 'solid 1px #ddd', height: '100%', position: 'relative'}}>
+              <Box sx={{position: 'absolute', inset: 0, overflow: 'auto'}}>
+                <RightPane />
+              </Box>
             </Box>
           )}
         </Stack>

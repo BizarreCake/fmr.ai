@@ -5,7 +5,8 @@ import {
   Container,
   List,
   ListItemButton,
-  ListItemIcon, ListItemText,
+  ListItemIcon,
+  ListItemText,
   Stack,
   Typography
 } from "@mui/material";
@@ -15,8 +16,8 @@ import {AttentionHeadPlotEntry, Dataset} from "../api/types.ts";
 import {useMutation, useQuery, useQueryClient} from "react-query";
 import axios from "axios";
 import {ScatterPlot} from "@mui/icons-material";
-import { formatDistance, subDays } from "date-fns";
-import { Link } from "react-router-dom";
+import {formatDistance} from "date-fns";
+import {Link} from "react-router-dom";
 
 
 interface ComputeDistanceMatrixParams {
@@ -98,18 +99,18 @@ function useListAttentionHeadPlotsQuery() {
 }
 
 function AnalysisListSection() {
-  const { data, isLoading } = useListAttentionHeadPlotsQuery();
+  const {data, isLoading} = useListAttentionHeadPlotsQuery();
 
   return (
     <>
-      <Typography variant="h6" sx={{ mb: 2 }}>
+      <Typography variant="h6" sx={{mb: 2}}>
         Analyses
       </Typography>
 
       {isLoading && (
         <Stack direction="row" spacing={2} alignItems="center">
           <Typography variant="body2">Loading results...</Typography>
-          <CircularProgress size={16} />
+          <CircularProgress size={16}/>
         </Stack>
       )}
 
@@ -122,7 +123,7 @@ function AnalysisListSection() {
               to={`/analyze/global/attention/head-clustering/${item.key}`}
             >
               <ListItemIcon>
-                <ScatterPlot />
+                <ScatterPlot/>
               </ListItemIcon>
 
               <ListItemText>
@@ -130,7 +131,7 @@ function AnalysisListSection() {
                   <Typography variant="subtitle2">Dataset: {item.dataset_name}</Typography>
                   <Typography variant="body2">Number of data points: {item.limit}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Created {formatDistance(new Date(item.created_at * 1000), new Date(), { addSuffix: true })}
+                    Created {formatDistance(new Date(item.created_at * 1000), new Date(), {addSuffix: true})}
                   </Typography>
                 </Box>
               </ListItemText>
@@ -139,7 +140,7 @@ function AnalysisListSection() {
         </List>
       )}
 
-      <Box />
+      <Box/>
     </>
   )
 }
@@ -163,7 +164,7 @@ export default function AttentionClusteringPage() {
           project the attention heads into 2D space.
         </Typography>
 
-        <AnalysisListSection />
+        <AnalysisListSection/>
 
         <AnalysisRunner/>
       </Container>

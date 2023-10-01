@@ -1,4 +1,7 @@
+from typing import Optional
+
 import networkx as nx
+from pydantic import BaseModel
 
 
 def weak_topological_sort(g: nx.DiGraph, nodes):
@@ -13,3 +16,9 @@ def weak_topological_sort(g: nx.DiGraph, nodes):
                 result.append(node)
 
     return result
+
+
+class DatasetInfo(BaseModel):
+    name: str
+    text_column: Optional[str] = None
+    description: Optional[str] = None

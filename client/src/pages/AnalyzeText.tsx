@@ -12,19 +12,14 @@ import {
 } from "@mui/material";
 import axios from "axios";
 import {useMutation, useQuery} from "react-query";
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useState} from "react";
 import {LoadingButton} from "@mui/lab";
-import * as d3 from 'd3';
-import useResizeObserver from "@react-hook/resize-observer";
+import {AttentionHeadExtraction, TokenizationResult} from "../api/types";
+import {AttentionHeadView} from "../components/AttentionHeadView.tsx";
 
 
 interface AnalyzeTextPredictParams {
   text: string;
-}
-
-interface TokenizationResult {
-  token_ids: number[];
-  token_names: string[];
 }
 
 interface AnalyzeTextPredictResponse extends TokenizationResult {
@@ -48,10 +43,6 @@ interface AnalyzeTextExtractAttentionParams {
 }
 
 
-interface AttentionHeadExtraction {
-  matrix: number[][];
-}
-
 interface AttentionExtraction {
   heads: AttentionHeadExtraction[];
 }
@@ -67,7 +58,7 @@ function useAnalyzeTextExtractAttentionQuery(params: AnalyzeTextExtractAttention
     async () => {
       const result = await axios.get(
         '/api/analyze/text/extract_attention',
-        { params, }
+        {params,}
       );
 
       return result.data as AnalyzeTextExtractAttentionResponse;
@@ -102,95 +93,6 @@ function TokenizationSection(props: TokenizationSectionProps) {
 }
 
 
-interface AttentionHeadViewProps {
-  tensorId: string;
-  headIndex: number;
-  tokenization: TokenizationResult;
-  data: AnalyzeTextExtractAttentionResponse;
-}
-
-function AttentionHeadView(props: AttentionHeadViewProps) {
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const [boxSize, setBoxSize] = useState({width: 0, height: 0});
-
-  const fontSize = 13;
-  const lineHeight = fontSize * 2;
-  const padding = 16;
-  const lineWidth = 60;
-  const requiredHeight = useMemo(() => {
-    return props.tokenization.token_names.length * lineHeight + 2 * padding;
-  }, [props.tokenization]);
-
-  useEffect(() => {
-    if (!svgRef.current)
-      return;
-
-    svgRef.current.innerHTML = '';  // clear contents
-
-    const svg = d3.select(svgRef.current);
-
-    svg.selectAll('.left')
-      .data(props.tokenization.token_names)
-      .enter()
-      .append('text')
-      .attr('font-family', 'monospace')
-      .attr('font-size', fontSize)
-      .attr('x', padding)
-      .attr('y', (_, i) => fontSize + i * lineHeight + padding)
-      .text((d) => d);
-
-    svg.selectAll('.right')
-      .data(props.tokenization.token_names)
-      .enter()
-      .append('text')
-      .attr('font-family', 'monospace')
-      .attr('font-size', fontSize)
-      .attr('x', boxSize.width - lineWidth - padding)
-      .attr('y', (_, i) => fontSize + i * lineHeight + padding)
-      .text((d) => d);
-
-    const attentionMatrix = props.data.batch[0].heads[props.headIndex].matrix;
-    svg.selectAll('.lines')
-    // iterate over all i,j pairs from 0 to attentionMatrix.length
-      .data(Array.from({length: attentionMatrix.length * attentionMatrix[0].length}, (_, v) => ({i: Math.floor(v / attentionMatrix.length), j: v % attentionMatrix.length})))
-      .enter()
-      .append('line')
-      .attr('x1', padding + lineWidth)
-      .attr('y1', (d) => (d.i) * lineHeight + padding + fontSize / 2)
-      .attr('x2', boxSize.width - 2 * padding - lineWidth)
-      .attr('y2', (d) => fontSize / 2 + d.j * lineHeight + padding)
-      .attr('stroke', 'blue')
-      .attr('stroke-opacity', (d) => attentionMatrix[d.i][d.j])
-      .attr('stroke-width', (d) => attentionMatrix[d.i][d.j]);
-  }, [props.tokenization, props.data, boxSize]);
-
-  const boxRef = useRef<HTMLDivElement | null>(null);
-  useResizeObserver(boxRef, (entry) => {
-    setBoxSize({
-      width: entry.contentRect.width,
-      height: entry.contentRect.height,
-    });
-  });
-
-  return (
-    <Box
-      ref={boxRef}
-      sx={{
-        border: '1px solid #ccc',
-        height: requiredHeight,
-      }}
-    >
-      <svg
-        ref={svgRef}
-        width="100%"
-        height="100%"
-        viewBox={`0 0 ${boxSize.width} ${boxSize.height}`}
-      />
-    </Box>
-  )
-}
-
-
 interface AttentionLayerViewProps {
   cmapKey: string;
   tensorId: string;
@@ -200,17 +102,17 @@ interface AttentionLayerViewProps {
 
 
 function AttentionLayerView(props: AttentionLayerViewProps) {
-  const { data, isLoading } = useAnalyzeTextExtractAttentionQuery({
+  const {data, isLoading} = useAnalyzeTextExtractAttentionQuery({
     key: props.cmapKey,
     tensor_id: props.tensorId,
   });
 
   return (
     <Box>
-      <Typography fontWeight="bold" sx={{ mb: 2 }}>Tensor {props.tensorId}</Typography>
+      <Typography fontWeight="bold" sx={{mb: 2}}>Tensor {props.tensorId}</Typography>
 
       {isLoading && (
-        <LinearProgress sx={{ mt: 1 }} />
+        <LinearProgress sx={{mt: 1}}/>
       )}
 
       {!isLoading && data && (
@@ -219,9 +121,7 @@ function AttentionLayerView(props: AttentionLayerViewProps) {
             Array.from({length: props.instance.num_heads}).map((_, i) => (
               <Grid item xs={4} key={i}>
                 <AttentionHeadView
-                  tensorId={props.tensorId}
-                  headIndex={i}
-                  data={data}
+                  data={data.batch[0].heads[i]}
                   tokenization={props.tokenization}
                 />
               </Grid>
@@ -264,7 +164,7 @@ function AttentionSection(props: AttentionSectionProps) {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Attention</Typography>
+      <Typography variant="h5" sx={{mb: 2}}>Attention</Typography>
 
       {isLoading && <CircularProgress sx={{mt: 3}}/>}
       {!isLoading && data && (
@@ -321,7 +221,7 @@ export default function AnalyzeTextPage() {
 
         <Stack spacing={7} sx={{mt: 7}}>
           {result && <TokenizationSection tokenization={result}/>}
-          {result && <AttentionSection cmapKey={result.key} tokenization={result} />}
+          {result && <AttentionSection cmapKey={result.key} tokenization={result}/>}
         </Stack>
       </Container>
     </Box>

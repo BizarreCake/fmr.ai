@@ -29,14 +29,14 @@ export const MAIN_SIDEBAR: SidebarConfig = {
           path: '/home',
         },
         {
-          text: 'Model',
-          path: '/model',
-          children: [
-            {
-              text: 'Computation Graph',
-              path: '/model/computation-graph',
-            },
-          ],
+          text: 'Model Graph',
+          path: '/model/computation-graph',
+          // children: [
+          //   {
+          //     text: 'Computation Graph',
+          //     path: '/model/computation-graph',
+          //   },
+          // ],
         },
       ],
     },
@@ -44,14 +44,8 @@ export const MAIN_SIDEBAR: SidebarConfig = {
       title: 'Global',
       items: [
         {
-          text: 'Attention',
-          path: '/analyze/global/attention',
-          children: [
-            {
-              text: 'Attention Head Clustering',
-              path: '/analyze/global/attention/head-clustering',
-            },
-          ],
+          text: 'Attention Heads',
+          path: '/analyze/global/attention/head-clustering',
         },
       ]
     },
