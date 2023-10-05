@@ -44,6 +44,7 @@ function useAnalyzeTextPredictMutation() {
 
 interface AnalyzeTextExtractAttentionParams {
   project_uuid?: string;
+  agent_uuid?: string;
   key: string;
   tensor_id: string;
 }
@@ -69,7 +70,7 @@ function useAnalyzeTextExtractAttentionQuery(params: AnalyzeTextExtractAttention
 
       return result.data as AnalyzeTextExtractAttentionResponse;
     }, {
-      enabled: params.project_uuid !== null,
+      enabled: params.project_uuid !== null && params.agent_uuid !== null,
     });
 }
 
@@ -111,8 +112,11 @@ interface AttentionLayerViewProps {
 
 function AttentionLayerView(props: AttentionLayerViewProps) {
   const { projectId } = useParams();
+  const currentModel = useAtomValue(currentModelAtom);
+  const agent = useAgentByModelName(currentModel);
   const {data, isLoading} = useAnalyzeTextExtractAttentionQuery({
     project_uuid: projectId,
+    agent_uuid: agent?.uuid,
     key: props.cmapKey,
     tensor_id: props.tensorId,
   });
@@ -151,7 +155,7 @@ interface AttentionExtractionInstance {
 
 interface AnalyzeModelFindAttentionParams {
   project_uuid: string;
-  model_name: string;
+  agent_uuid: string;
 }
 
 interface AnalyzeModelFindAttentionResponse {
@@ -180,10 +184,11 @@ interface AttentionSectionProps {
 function AttentionSection(props: AttentionSectionProps) {
   const { projectId } = useParams();
   const currentModel = useAtomValue(currentModelAtom);
+  const agent = useAgentByModelName(currentModel);
   const {data, isLoading} = useAnalyzeModelFindAttentionQuery(
-    projectId && currentModel ? {
+    projectId && agent ? {
       project_uuid: projectId,
-      model_name: currentModel,
+      agent_uuid: agent.uuid,
     } : null
   );
 

@@ -200,7 +200,7 @@ function NoGraphAvailable() {
 
 interface GetModelGraphParams {
   project_uuid: string;
-  model_name: string;
+  agent_uuid: string;
 }
 
 interface GetModelGraphResponse {
@@ -222,10 +222,11 @@ function useGetModelGraphQuery(params: null | GetModelGraphParams) {
 export default function ViewComputationGraphPage() {
   const { projectId } = useParams();
   const currentModel = useAtomValue(currentModelAtom);
-  const { data, isLoading, error } = useGetModelGraphQuery(
-    (projectId && currentModel) ? {
+  const agent = useAgentByModelName(currentModel);
+  const { data, isLoading} = useGetModelGraphQuery(
+    (projectId && agent) ? {
       project_uuid: projectId,
-      model_name: currentModel,
+      agent_uuid: agent.uuid,
     } : null
   );
 

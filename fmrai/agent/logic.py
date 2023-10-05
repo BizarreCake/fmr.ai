@@ -6,13 +6,14 @@ import datasets
 import torch
 from pydantic import BaseModel
 
-from fmrai.agent import AgentState
+from fmrai.agent import AgentState, models
 from fmrai.agent.api import TokenizedText
-from fmrai.analysis.attention import AttentionHeadClusteringResult
+from fmrai.analysis.attention import AttentionHeadClusteringResult, extract_attention_values
 from fmrai.analysis.attention import compute_attention_head_clustering
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import get_fmrai
 from fmrai.logging import get_attention_head_plots_dir, get_computation_graph_dir, get_computation_map_dir
+from fmrai.tracker import NiceComputationGraph, LazyComputationMap, OrdinalTensorId
 
 
 @dataclass
@@ -34,6 +35,52 @@ def do_generate_model_graph(agent_state: AgentState, *, root_dir: str, model_nam
     os.makedirs(out_dir, exist_ok=True)
 
     nice_graph.save(out_dir, 'graph', save_dot=True)
+
+
+def do_get_model_graph(_agent_state: AgentState, *, root_dir: str, model_name: str):
+    graph_dir = get_computation_graph_dir(model_name, root_dir=root_dir)
+    graph_path = f'{graph_dir}/graph.dot'
+    if not os.path.exists(graph_path):
+        return {'dot': None}
+
+    with open(graph_path, 'r') as f:
+        return {
+            'dot': f.read()
+        }
+
+
+def do_find_attention(_agent_state: AgentState, *, root_dir: str, model_name: str):
+    cg_path = os.path.join(
+        get_computation_graph_dir(model_name, root_dir=root_dir),
+        'graph.pickle'
+    )
+    cg = NiceComputationGraph.load_from(cg_path)
+    instances = list(find_multi_head_attention(cg))
+
+    return models.AnalyzeModelFindAttentionOut(
+        instances=[
+            models.MultiHeadAttentionInstanceModel.from_value(instance)
+            for instance in instances
+        ]
+    )
+
+
+def do_extract_attention(
+        _agent_state: AgentState,
+        key: str,
+        tensor_id: str,
+        *,
+        root_dir: str,
+):
+    cmap = LazyComputationMap.load_from(get_computation_map_dir(key, root_dir=root_dir))
+
+    assert tensor_id.startswith('#')
+    tensor_id = OrdinalTensorId(ordinal=int(tensor_id[1:]))
+
+    attention_batch = extract_attention_values(cmap, tensor_id)
+    return models.AnalyzeTextExtractAttentionOut(
+        batch=attention_batch,
+    )
 
 
 def do_predict_text(

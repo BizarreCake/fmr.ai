@@ -1,6 +1,7 @@
 import bottle
 
-from fmrai.agent.logic import do_list_attention_head_plot_inputs
+from fmrai.agent.logic import do_list_attention_head_plot_inputs, do_find_attention, do_extract_attention, \
+    do_get_model_graph
 from fmrai.agent.logic import do_predict_text, do_generate_model_graph, do_compute_attention_head_plot
 from fmrai.agent.state import get_global_agent_state
 
@@ -14,7 +15,7 @@ def get_status():
     }
 
 
-@app.post('/model/generate-graph')
+@app.post('/model/graph/generate')
 def generate_model_graph():
     data = bottle.request.json
     root_dir = data['root_dir']
@@ -24,6 +25,43 @@ def generate_model_graph():
     assert agent_state.api is not None
 
     do_generate_model_graph(agent_state, root_dir=root_dir, model_name=model_name)
+
+
+@app.post('/model/graph/get')
+def get_model_graph():
+    data = bottle.request.json
+    root_dir = data['root_dir']
+    model_name = data['model_name']
+
+    agent_state = get_global_agent_state()
+    assert agent_state.api is not None
+
+    return do_get_model_graph(agent_state, root_dir=root_dir, model_name=model_name)
+
+
+@app.post('/model/find_attention')
+def find_attention():
+    data = bottle.request.json
+    root_dir = data['root_dir']
+    model_name = data['model_name']
+
+    agent_state = get_global_agent_state()
+    assert agent_state.api is not None
+
+    return do_find_attention(agent_state, root_dir=root_dir, model_name=model_name).dict()
+
+
+@app.post('/analyze/text/extract_attention')
+def extract_attention():
+    data = bottle.request.json
+    key = data['key']
+    tensor_id = data['tensor_id']
+    root_dir = data['root_dir']
+
+    agent_state = get_global_agent_state()
+    assert agent_state.api is not None
+
+    return do_extract_attention(agent_state, key, tensor_id, root_dir=root_dir).dict()
 
 
 @app.post('/predict/text/one')

@@ -1,62 +1,16 @@
+import os
 from typing import Optional
 
 import requests
 from fastapi import APIRouter, HTTPException, Depends, Body
 
 from fmrai.analysis.attention import AttentionHeadClusteringResult, extract_attention_values
-from fmrai.analysis.structure import find_multi_head_attention
-from fmrai.logging import get_computation_graph_dir, get_attention_head_plots_dir, get_computation_map_dir
-from fmrai.tracker import LazyComputationMap, OrdinalTensorId, NiceComputationGraph
+from fmrai.logging import get_computation_graph_dir, get_attention_head_plots_dir
+from fmrai.tracker import LazyComputationMap, OrdinalTensorId
 from server.adapters.repository import get_local_project_repository
 from server.entrypoints.web import models
-import os
 
 router = APIRouter(prefix='/api')
-
-
-@router.get('/model-graph')
-def get_model_graph(project_uuid: str, model_name: str):
-    repo = get_local_project_repository()
-    project = repo.get_project(project_uuid)
-    if project is None:
-        raise HTTPException(400, 'project not found')
-
-    graph_dir = get_computation_graph_dir(model_name, root_dir=project.data_root_dir)
-    graph_path = f'{graph_dir}/graph.dot'
-    if not os.path.exists(graph_path):
-        raise HTTPException(404, 'graph not found')
-
-    with open(graph_path, 'r') as f:
-        return {
-            'dot': f.read()
-        }
-
-
-@router.post('/model-graph/generate')
-def generate_model_graph(data: models.GenerateModelGraphIn):
-    repo = get_local_project_repository()
-    project = repo.get_project(data.project_uuid)
-    if project is None:
-        raise HTTPException(400, 'project not found')
-
-    agent = project.get_agent(data.agent_uuid)
-    if agent is None:
-        raise HTTPException(400, 'agent project not found')
-
-    r = requests.post(
-        f'{agent.connect_url}/model/generate-graph',
-        json={
-            'root_dir': project.data_root_dir,
-            'model_name': agent.model_name,
-        }
-    )
-
-    if r.status_code != 200:
-        raise HTTPException(400, 'agent error')
-
-    return {
-        'status': 'ok'
-    }
 
 
 def _get_project(project_uuid: str):
@@ -95,6 +49,43 @@ def get_project_from_body(project_uuid: str = Body(embed=True)):
 
 def get_project_from_params(project_uuid: str):
     return _get_project(project_uuid)
+
+
+@router.get('/model-graph')
+def get_model_graph(
+        project=Depends(get_project_from_params),
+        agent=Depends(get_agent_from_params),
+):
+    r = requests.post(
+        f'{agent.connect_url}/model/graph/get',
+        json={
+            'root_dir': project.data_root_dir,
+            'model_name': agent.model_name,
+        }
+    )
+
+    return r.json()
+
+
+@router.post('/model-graph/generate')
+def generate_model_graph(
+        project=Depends(get_project_from_body),
+        agent=Depends(get_agent_from_body),
+):
+    r = requests.post(
+        f'{agent.connect_url}/model/graph/generate',
+        json={
+            'root_dir': project.data_root_dir,
+            'model_name': agent.model_name,
+        }
+    )
+
+    if r.status_code != 200:
+        raise HTTPException(400, 'agent error')
+
+    return {
+        'status': 'ok'
+    }
 
 
 @router.get('/datasets/list')
@@ -239,36 +230,34 @@ def analyze_text_predict(
 
 @router.get('/analyze/model/find_attention')
 def analyze_model_find_attention(
-        model_name: str,
+        agent=Depends(get_agent_from_params),
         project=Depends(get_project_from_params),
 ):
-    cg_path = os.path.join(
-        get_computation_graph_dir(model_name, root_dir=project.data_root_dir),
-        'graph.pickle'
+    r = requests.post(
+        f'{agent.connect_url}/model/find_attention',
+        json={
+            'root_dir': project.data_root_dir,
+            'model_name': agent.model_name,
+        }
     )
-    cg = NiceComputationGraph.load_from(cg_path)
-    instances = list(find_multi_head_attention(cg))
 
-    return models.AnalyzeModelFindAttentionOut(
-        instances=[
-            models.MultiHeadAttentionInstanceModel.from_value(instance)
-            for instance in instances
-        ]
-    )
+    return r.json()
 
 
 @router.get('/analyze/text/extract_attention')
 def analyze_text_extract_attention(
         key: str,
         tensor_id: str,
+        agent=Depends(get_agent_from_params),
         project=Depends(get_project_from_params),
 ):
-    cmap = LazyComputationMap.load_from(get_computation_map_dir(key, root_dir=project.data_root_dir))
-
-    assert tensor_id.startswith('#')
-    tensor_id = OrdinalTensorId(ordinal=int(tensor_id[1:]))
-
-    attention_batch = extract_attention_values(cmap, tensor_id)
-    return models.AnalyzeTextExtractAttentionOut(
-        batch=attention_batch,
+    r = requests.post(
+        f'{agent.connect_url}/analyze/text/extract_attention',
+        json={
+            'key': key,
+            'tensor_id': tensor_id,
+            'root_dir': project.data_root_dir,
+        }
     )
+
+    return r.json()

@@ -169,6 +169,9 @@ _INSTRUMENTABLE_TORCH_FUNCTIONS = [
     'torch.softmax',
     'torch.bmm',
     'torch.tanh',
+    'torch.rsqrt',
+    'torch.clone',
+    'torch.cat',
 
     'torch.nn.functional.linear',
     'torch.nn.functional.softmax',

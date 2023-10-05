@@ -46,3 +46,7 @@ class AgentAPI:
 
     def load_dataset(self, name: str) -> Optional[Tuple[Dataset, DatasetInfo]]:
         return None
+
+    def run(self, host=None, port=None):
+        from fmrai.agent import run_agent
+        run_agent(self, host=host, port=port)
