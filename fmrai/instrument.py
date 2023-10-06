@@ -1,6 +1,7 @@
 import contextlib
 import inspect
 from dataclasses import dataclass
+from functools import wraps
 from typing import Union, Any, Dict, Callable, Optional, List, Tuple
 
 import torch
@@ -105,6 +106,7 @@ def wrap_in_proxy(t: Tensor, *, origin: Optional['TensorOrigin'] = None):
 
 
 def make_proxy_function(fn, *, unwrap_args=True):
+    @wraps(fn)
     def wrapper(*args, **kwargs):
         if unwrap_args:
             unwrapped_args = tuple(unwrap_proxy(a) for a in args)
@@ -273,3 +275,87 @@ def instrumentation_scope(*, track_origin=True):
     finally:
         deinstrument_pytorch(state.original_functions)
         _CURRENT_INSTRUMENTATION_STATE = None
+
+
+class PostInstrumentationProxyMeta(type):
+    def __instancecheck__(cls, instance):
+        return isinstance(instance._wrapped, type(instance._wrapped))
+
+    # def __subclasscheck__(cls, subclass):
+    #     # TODO
+
+
+class PostInstrumentationProxy(metaclass=PostInstrumentationProxyMeta):
+    def __init__(self, wrapped):
+        self.__dict__['_wrapped'] = wrapped
+        self.__dict__['_wrapped_attrs'] = {}
+
+    def __instrument(self, key, value):
+        # print('__instrument', key, type(value))
+        if key:
+            existing = self._wrapped_attrs.get(key)
+            if existing is not None:
+                return existing
+
+        if _is_wrappable_object(value) and type(value) is not PostInstrumentationProxy:
+            value = _post_instrument_wrappable_object(value)
+            if key:
+                self._wrapped_attrs[key] = value
+            return value
+
+        if callable(value):
+            # rebind & wrap
+            if inspect.ismethod(value):
+                inner = self.__dict__['_wrapped']
+                value = value.__get__(self, inner.__class__)
+                # print('  rebound', key)
+
+            value = make_proxy_function(value)
+
+            if key:
+                self._wrapped_attrs[key] = value
+            return value
+
+        return value
+
+    def __call__(self, *args, **kwargs):
+        return self.__instrument(
+            None,
+            type(self._wrapped).__call__(self, *args, **kwargs)
+        )
+
+    def __getitem__(self, item):
+        # value = type(self._wrapped).__getitem__(self, item)
+        value = self._wrapped[item]
+        return self.__instrument(f'[{item}]', value)
+
+    def __getattr__(self, item):
+        value = getattr(self._wrapped, item)
+        return self.__instrument(item, value)
+
+    def __setattr__(self, key, value):
+        return setattr(self._wrapped, key, value)
+
+    def __repr__(self):
+        return f'<instrumented: {repr(self._wrapped)}>'
+
+
+def _is_wrappable_object(obj):
+    return isinstance(obj, (nn.Module,))
+
+
+def _post_instrument_wrappable_object(obj):
+    if type(obj) is PostInstrumentationProxy:
+        return obj
+
+    # print('  _post_instrument_wrappable_object', type(obj))
+    return PostInstrumentationProxy(obj)
+
+
+def instrument_model(model):
+    """
+    Applies instrumentation to a model that was created outside instrumentation scope.
+    """
+    if not _is_wrappable_object(model):
+        return model
+    return _post_instrument_wrappable_object(model)
