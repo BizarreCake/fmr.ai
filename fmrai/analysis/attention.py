@@ -1,14 +1,21 @@
+import collections
+import contextlib
 import os
 import time
-from typing import List, Optional
+from typing import List, Optional, Deque
 
 import numpy as np
 import torch
 from pydantic import BaseModel
 from torch import Tensor
+from tqdm import tqdm
 
-from fmrai.analysis.common import DatasetInfo
-from fmrai.tracker import ComputationMap, TensorId, LazyComputationMap, OrdinalTensorId, BatchedComputationMap
+from fmrai.analysis.common import DatasetInfo, AnalysisTracker
+from fmrai.analysis.structure import find_multi_head_attention
+from fmrai.fmrai import get_fmrai
+from fmrai.instrument import unwrap_proxy
+from fmrai.tracker import ComputationMap, TensorId, LazyComputationMap, OrdinalTensorId, BatchedComputationMap, \
+    SingleComputationTracker
 
 
 class AttentionHeadExtraction(BaseModel):
@@ -86,17 +93,22 @@ def _compute_attention_head_divergence_matrix_one_instance(
 def compute_attention_head_divergence_matrix(
         batch_cmap: ComputationMap,
         attention_tensors: List[TensorId],
+        *,
+        device=None,
 ) -> np.ndarray:
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else None
+
     with torch.no_grad():
         # gather all tensors and check that they have the same shape
         all_tensors = []
         for tensor_id in attention_tensors:
-            tensor = batch_cmap.get_cat(tensor_id)
+            tensor = unwrap_proxy(batch_cmap.get_cat(tensor_id))
 
             if all_tensors:
                 assert (all_tensors[-1].size() == tensor.size())
 
-            all_tensors.append(tensor)
+            all_tensors.append(tensor.to(device))
 
         # concatenate all tensors
         big_tensor = torch.concat(all_tensors, dim=1)  # concatenate along num_heads dimension
@@ -129,22 +141,53 @@ class AttentionHeadClusteringResult(BaseModel):
     dataset_info: Optional[DatasetInfo] = None
     limit: Optional[int] = None
 
+    def plot(self, figsize=(8, 8)):
+        import seaborn as sns
+        import matplotlib.pyplot as plt
 
-def compute_attention_head_clustering(
-        cmap: ComputationMap,
+        f, ax = plt.subplots(figsize=figsize)
+        sns.scatterplot(
+            x=[i.x for i in self.mds],
+            y=[i.y for i in self.mds],
+            hue=[i.tensor_id for i in self.mds],
+            ax=ax
+        )
+
+
+class AttentionHeadClusteringAccumulator:
+    def __init__(self, attention_tensors: List[TensorId]):
+        self._attention_tensors = attention_tensors
+        self._accumulated_result: Optional[np.ndarray] = None
+        self._num_instances = 0
+
+    def process_batch(self, cmap: ComputationMap):
+        distance_matrix = compute_attention_head_divergence_matrix(cmap, self._attention_tensors)
+
+        # figure out instance count by looking at batch size in some tensor
+        some_tensor_id = next(iter(cmap))
+        instance_count = cmap.get(some_tensor_id)[0].size(0)
+
+        # combine with previous batches
+        if self._accumulated_result is None:
+            self._accumulated_result = distance_matrix / instance_count
+        else:
+            self._accumulated_result = ((self._accumulated_result * self._num_instances + distance_matrix) /
+                                        (self._num_instances + instance_count))
+
+        self._num_instances += instance_count
+
+    def result(self) -> Optional[np.ndarray]:
+        return self._accumulated_result
+
+
+def _compute_attention_plot_coords_from_distance_matrix(
+        distance_matrix: np.ndarray,
         attention_tensors: List[TensorId],
-) -> AttentionHeadClusteringResult:
-    if isinstance(cmap, BatchedComputationMap):
-        batches = list(cmap)
-    else:
-        batches = [cmap]
-
-    distance_matrix = np.sum((
-        compute_attention_head_divergence_matrix(cmap, attention_tensors)
-        for cmap in batches
-    ), axis=0) / len(batches)
-
-    # apply MDS to get 2d coordinates for each attention head
+        ref_batch,  # used to compute the number of attention heads
+):
+    """
+    Apply MDS to get 2d coordinates for each attention head.
+    """
     from sklearn.manifold import MDS
     mds = MDS(n_components=2, dissimilarity='precomputed')
     mds_coords = mds.fit_transform((distance_matrix + np.transpose(distance_matrix)) / 2)
@@ -159,7 +202,7 @@ def compute_attention_head_clustering(
         if heads_in_tensor == 0:
             head_index = 0
             tensor_index += 1
-            heads_in_tensor = batches[0].get(attention_tensors[tensor_index])[0].size(1)
+            heads_in_tensor = ref_batch.get(attention_tensors[tensor_index])[0].size(1)
 
         heads.append(AttentionHeadPoint(
             tensor_id=str(attention_tensors[tensor_index]),
@@ -176,6 +219,144 @@ def compute_attention_head_clustering(
         created_at=time.time(),
         mds=heads,
     )
+
+
+def compute_attention_head_clustering(
+        cmap: ComputationMap,
+        attention_tensors: List[TensorId],
+) -> AttentionHeadClusteringResult:
+    if isinstance(cmap, BatchedComputationMap):
+        batches = list(cmap)
+    else:
+        batches = [cmap]
+
+    # process all batches
+    batches_iter = tqdm(batches, desc='computing attention head divergence matrix')
+    accumulator = AttentionHeadClusteringAccumulator(attention_tensors)
+    for batch in batches_iter:
+        accumulator.process_batch(batch)
+
+    distance_matrix = accumulator.result()
+    return _compute_attention_plot_coords_from_distance_matrix(
+        distance_matrix,
+        attention_tensors,
+        batches[0],
+    )
+
+
+class AttentionTracker(AnalysisTracker):
+    def __init__(self):
+        self._attention_tensor_ids: Optional[List[TensorId]] = None
+        self._expected_cmap_size: Optional[int] = None
+        self._cmaps: Deque[ComputationMap] = collections.deque()
+
+    def __bool__(self):
+        return len(self._cmaps) > 0
+
+    def consume_batch(self) -> ComputationMap:
+        return self._cmaps.popleft()
+
+    @property
+    def attention_tensor_ids(self) -> Optional[List[TensorId]]:
+        return self._attention_tensor_ids
+
+    def get_computation_map(self) -> BatchedComputationMap:
+        return BatchedComputationMap(batches=list(self._cmaps))
+
+    def _find_attention_tensors(self, tracker: SingleComputationTracker):
+        """
+        Called after processing the first batch to find the ids of the attention tensors.
+        """
+        last = tracker.get_last_tensor()
+        assert last is not None
+
+        cg = tracker.build_graph(last[1]).make_nice()
+        result = list(find_multi_head_attention(cg))
+
+        self._attention_tensor_ids = [
+            instance.softmax_value.tensor_id
+            for instance in result
+        ]
+
+    def _process_computation_map(self, cmap: ComputationMap):
+        self._cmaps.append(cmap)
+
+    @contextlib.contextmanager
+    def track_batch(self):
+        fmr = get_fmrai()
+
+        try:
+            with fmr.track(
+                    track_tensors=self._attention_tensor_ids
+            ) as tracker:
+                tracker: SingleComputationTracker
+
+                # pass control back and wait for computation
+                yield
+
+                if self._attention_tensor_ids is None:
+                    self._find_attention_tensors(tracker)
+
+                cmap = tracker.build_map()
+                if self._expected_cmap_size is not None:
+                    assert tracker.num_seen_tensors == self._expected_cmap_size
+                else:
+                    self._expected_cmap_size = tracker.num_seen_tensors
+                    filter_set = set(self._attention_tensor_ids)
+                    cmap = cmap.filter_ids(lambda x: x in filter_set)
+
+                self._process_computation_map(cmap)
+        finally:
+            pass
+
+
+class AttentionHeadClusterAnalyzer:
+    def __init__(self, tracker: Optional[AttentionTracker] = None):
+        self._tracker = tracker
+        self._accumulator: Optional[AttentionHeadClusteringAccumulator] = None
+        self._first_batch: Optional[ComputationMap] = None
+
+    @property
+    def tracker(self):
+        if self._tracker is None:
+            self._tracker = AttentionTracker()
+        return self._tracker
+
+    def _consume_batch_from_tracker(self):
+        with get_fmrai().pause():
+            batch = self.tracker.consume_batch()
+            if self._first_batch is None:
+                self._first_batch = batch
+
+            self._accumulator.process_batch(batch)
+
+    @contextlib.contextmanager
+    def track_batch(self):
+        with self.tracker.track_batch():
+            yield
+
+        if self._accumulator is None:
+            self._accumulator = AttentionHeadClusteringAccumulator(self.tracker.attention_tensor_ids)
+
+        self._consume_batch_from_tracker()
+
+    def analyze(self):
+        """ Analyzes all available output produced by the tracker(s). """
+        with get_fmrai().pause():
+            # consume remaining batches
+            while self.tracker:
+                self._consume_batch_from_tracker()
+
+            distance_matrix = self._accumulator.result()
+
+            assert self.tracker.attention_tensor_ids is not None
+            result = _compute_attention_plot_coords_from_distance_matrix(
+                distance_matrix,
+                self.tracker.attention_tensor_ids,
+                ref_batch=self._first_batch,
+            )
+
+        return result
 
 
 def test_extract_attention():

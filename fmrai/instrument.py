@@ -16,12 +16,7 @@ class InstrumentationState:
     param_to_name: Dict[nn.Parameter, str]
     track_origin: bool = True
     fmr: Optional['Fmrai'] = None
-    # next_ordinal: int = 0
-
-    # def get_next_ordinal(self) -> int:
-    #     o = self.next_ordinal
-    #     self.next_ordinal += 1
-    #     return o
+    disabled: int = 0
 
 
 _CURRENT_INSTRUMENTATION_STATE: Optional[InstrumentationState] = None
@@ -90,7 +85,7 @@ def unwrap_proxy(t: Union['TensorProxy', Any], recursive=True):
     return t._wrapped if type(t) is TensorProxy else t
 
 
-def wrap_in_proxy(t: Tensor, *, origin: Optional['TensorOrigin'] = None):
+def _wrap_in_proxy(t: Tensor, *, origin: Optional['TensorOrigin'] = None):
     assert type(t) is Tensor
 
     state = get_current_instrumentation_state()
@@ -105,9 +100,34 @@ def wrap_in_proxy(t: Tensor, *, origin: Optional['TensorOrigin'] = None):
     return proxy
 
 
+def _try_wrap_in_proxy(value):
+    if type(value) is Tensor:
+        return _wrap_in_proxy(value)
+
+    if isinstance(value, dict):
+        return {k: _try_wrap_in_proxy(v) for k, v in value.items()}
+
+    return value
+
+
+def _wrap_args_in_proxy(args, kwargs):
+    args = tuple(_try_wrap_in_proxy(a) for a in args)
+    kwargs = {k: _try_wrap_in_proxy(v) for k, v in kwargs.items()}
+    return args, kwargs
+
+
 def make_proxy_function(fn, *, unwrap_args=True):
     @wraps(fn)
     def wrapper(*args, **kwargs):
+        # print('pf', fn.__name__)
+        # print('  args', [type(a) for a in args])
+        # print('  kwargs', {k: type(v) for k, v in kwargs.items()})
+
+        state = get_current_instrumentation_state()
+        if state.disabled > 0:
+            # if disabled, do nothing
+            return fn(*args, **kwargs)
+
         if unwrap_args:
             unwrapped_args = tuple(unwrap_proxy(a) for a in args)
             unwrapped_kwargs = {k: unwrap_proxy(v) for k, v in kwargs.items()}
@@ -120,7 +140,6 @@ def make_proxy_function(fn, *, unwrap_args=True):
 
         if isinstance(result, torch.Tensor):
             # create origin
-            state = get_current_instrumentation_state()
             if state.track_origin:
                 origin_args = [get_proxy_origin(a) for a in args]
                 origin_kwargs = {k: get_proxy_origin(v) for k, v in kwargs.items()}
@@ -128,7 +147,7 @@ def make_proxy_function(fn, *, unwrap_args=True):
             else:
                 origin = None
 
-            return wrap_in_proxy(result, origin=origin)
+            return _wrap_in_proxy(result, origin=origin)
 
         return result
 
@@ -154,15 +173,30 @@ class TensorProxy(metaclass=TensorProxyMeta):
             wrapped,
             # ordinal: int,
             origin: Optional[TensorOrigin] = None,
+            saved_id: Optional[int] = None,
+            saved_grad_fn=None,
     ):
         assert type(wrapped) is not TensorProxy
         self._wrapped = wrapped
         # self._ordinal = ordinal
         self._origin = origin
-        self._saved_grad_fn = wrapped.grad_fn
+        self._saved_grad_fn = wrapped.grad_fn if saved_grad_fn is None else saved_grad_fn
+        self._saved_id = id(wrapped) if saved_id is None else saved_id
 
     def __getattr__(self, item):
         return getattr(self._wrapped, item)
+
+    def __repr__(self):
+        return repr(self._wrapped)
+
+    def save_proxy(self):
+        """ Returns a copy with a detached tensor. """
+        return TensorProxy(
+            self._wrapped.detach().cpu(),
+            origin=self._origin,
+            saved_id=self._saved_id,
+            saved_grad_fn=self._saved_grad_fn,
+        )
 
 
 _INSTRUMENTABLE_TORCH_FUNCTIONS = [
@@ -174,6 +208,8 @@ _INSTRUMENTABLE_TORCH_FUNCTIONS = [
     'torch.rsqrt',
     'torch.clone',
     'torch.cat',
+    'torch.stack',
+    'torch.isfinite',
 
     'torch.nn.functional.linear',
     'torch.nn.functional.softmax',
@@ -254,7 +290,7 @@ def deinstrument_pytorch(originals: Dict[str, Callable]):
 
 
 @contextlib.contextmanager
-def instrumentation_scope(*, track_origin=True):
+def instrumentation_scope(*, track_origin=False):
     global _CURRENT_INSTRUMENTATION_STATE
 
     if _CURRENT_INSTRUMENTATION_STATE is not None:
@@ -275,6 +311,16 @@ def instrumentation_scope(*, track_origin=True):
     finally:
         deinstrument_pytorch(state.original_functions)
         _CURRENT_INSTRUMENTATION_STATE = None
+
+
+@contextlib.contextmanager
+def pause_instrumentation():
+    state = get_current_instrumentation_state()
+    state.disabled += 1
+    try:
+        yield
+    finally:
+        state.disabled -= 1
 
 
 class PostInstrumentationProxyMeta(type):
@@ -319,6 +365,9 @@ class PostInstrumentationProxy(metaclass=PostInstrumentationProxyMeta):
         return value
 
     def __call__(self, *args, **kwargs):
+        if isinstance(self._wrapped, nn.Module):
+            args, kwargs = _wrap_args_in_proxy(args, kwargs)
+
         return self.__instrument(
             None,
             type(self._wrapped).__call__(self, *args, **kwargs)

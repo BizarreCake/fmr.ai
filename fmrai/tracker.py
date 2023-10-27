@@ -6,7 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Union, Dict, Optional, Callable, Any, Iterable, List
+from typing import Union, Dict, Optional, Callable, Any, Iterable, List, Tuple, Iterator
 
 import networkx as nx
 # import reai.bert.base
@@ -73,8 +73,26 @@ class SingleComputationTracker(ComputationTracker):
         self._tensor_to_id = {}
         return self
 
+    @property
+    def num_seen_tensors(self):
+        return len(self._id_to_tensor)
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         remove_new_tensor_callback(self._handle_new_tensor)
+
+    def get_last_tensor(self) -> Optional[Tuple[OrdinalTensorId, TensorProxy]]:
+        """
+        Returns the tensors with the highest ordinal id.
+        """
+        result = max(
+            self._id_to_tensor.items(),
+            key=lambda p: p[0].ordinal if isinstance(p[0], OrdinalTensorId) else 0
+        )
+
+        if not isinstance(result[0], OrdinalTensorId):
+            return None
+
+        return result
 
     @contextlib.contextmanager
     def no_track(self):
@@ -93,7 +111,6 @@ class SingleComputationTracker(ComputationTracker):
             return
 
         # print('_hnt', tensor)
-        # tensor.retain_grad()
 
         u = unwrap_proxy(tensor)
 
@@ -101,8 +118,8 @@ class SingleComputationTracker(ComputationTracker):
         self._next_ordinal += 1
 
         tensor_id = OrdinalTensorId(ordinal=ordinal)
-        self._id_to_tensor[tensor_id] = tensor
-        self._tensor_to_id[id(tensor)] = tensor_id
+        self._id_to_tensor[tensor_id] = tensor.save_proxy()
+        self._tensor_to_id[tensor._saved_id] = tensor_id
 
         if getattr(u, 'grad_fn', None) is not None:
             grad_id = id(tensor._saved_grad_fn)
@@ -242,7 +259,12 @@ class SingleComputationTracker(ComputationTracker):
 
             u = unwrap_proxy(t)
             if tensor_id is None:
-                tensor_id = self._tensor_to_id.get(id(t), self._tensor_to_id.get(id(u)))
+                if type(t) == TensorProxy:
+                    raw_id = t._saved_id
+                else:
+                    raw_id = id(t)
+
+                tensor_id = self._tensor_to_id.get(raw_id)
 
             if type(t) is TensorProxy:
                 grad_fn = t._saved_grad_fn
@@ -282,6 +304,8 @@ class SingleComputationTracker(ComputationTracker):
         seen = {}
         while work:
             item = work.pop()
+            # TODO: make sure id() here is correct, since TensorProxy's can store
+            #       a different tensor if .save_proxy() is called
             if id(item.value) in seen:
                 # just call callback
                 item.callback(seen[id(item.value)])
@@ -464,10 +488,19 @@ class OpNode(GraphNode):
 
 
 class ComputationMap:
+    def __len__(self):
+        raise NotImplementedError()
+
+    def __iter__(self) -> Iterator[TensorId]:
+        raise NotImplementedError
+
     def save_to_dir(self, dir_path: str, time_step: int = 0):
         raise NotImplementedError()
 
     def get(self, tensor_id: TensorId) -> List[Tensor]:
+        raise NotImplementedError()
+
+    def filter_ids(self, fn: Callable[[TensorId], bool]) -> 'ComputationMap':
         raise NotImplementedError()
 
     def get_cat(self, tensor_id: TensorId, *, dim=0) -> Optional[Tensor]:
@@ -481,6 +514,17 @@ class ComputationMap:
 @dataclass
 class EagerComputationMap(ComputationMap):
     data: Dict[TensorId, Tensor]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __iter__(self) -> Iterator[TensorId]:
+        return iter(self.data.keys())
+
+    def filter_ids(self, fn: Callable[[TensorId], bool]) -> 'ComputationMap':
+        return EagerComputationMap(
+            data={tensor_id: tensor for tensor_id, tensor in self.data.items() if fn(tensor_id)}
+        )
 
     def get(self, tensor_id: TensorId) -> List[Tensor]:
         tensor = self.data.get(tensor_id)
@@ -504,6 +548,10 @@ class LazyComputationMap(ComputationMap):
         self._root_dir = root_dir
         self._time_step = time_step
         self._data = {}
+
+    def __len__(self):
+        # TODO
+        raise NotImplementedError()
 
     @staticmethod
     def load_from(path: str, time_step: int = 0) -> 'LazyComputationMap':

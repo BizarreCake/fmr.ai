@@ -1,7 +1,7 @@
 import contextlib
 from typing import Optional, Generator, Union, Iterable
 
-from fmrai.instrument import instrumentation_scope, get_current_instrumentation_state
+from fmrai.instrument import instrumentation_scope, get_current_instrumentation_state, pause_instrumentation
 from fmrai.logging import log_model, log_model_parameters
 from fmrai.tracker import SingleComputationTracker, BatchedComputationTracker, TensorId
 
@@ -32,6 +32,11 @@ class Fmrai:
             tracker.set_root_model(self._models[0])
 
         return tracker
+
+    @contextlib.contextmanager
+    def pause(self):
+        with pause_instrumentation():
+            yield
 
 
 @contextlib.contextmanager
