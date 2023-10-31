@@ -17,7 +17,7 @@ from torch.nn import Parameter
 from tqdm import tqdm
 
 from fmrai.instrument import instrumentation_scope, TensorProxy, add_new_tensor_callback, \
-    unwrap_proxy, get_current_instrumentation_state, remove_new_tensor_callback
+    unwrap_proxy, get_current_instrumentation_state, remove_new_tensor_callback, TensorOrigin
 from fmrai.logging import log_model_parameters, log_tensor, get_computation_map_dir
 
 
@@ -63,6 +63,10 @@ class SingleComputationTracker(ComputationTracker):
         self._tracking = True
         self._tracked_tensors = list(track_tensors) if track_tensors is not None else None
 
+        self._cg: Optional[nx.DiGraph] = None
+        self._use_origins = True
+        self._dbg_wrote_origin = False
+
     def set_root_model(self, model):
         self._root_model = model
 
@@ -71,6 +75,11 @@ class SingleComputationTracker(ComputationTracker):
         self._grad_fn_to_tensor = {}
         self._id_to_tensor = {}
         self._tensor_to_id = {}
+
+        self._grad_fn_to_tensor_node = {}
+        self._id_to_tensor_node = {}
+        self._cg = nx.DiGraph()
+        self._origin_to_tensor_node = {}
         return self
 
     @property
@@ -110,10 +119,6 @@ class SingleComputationTracker(ComputationTracker):
         if not self._tracking:
             return
 
-        # print('_hnt', tensor)
-
-        u = unwrap_proxy(tensor)
-
         ordinal = self._next_ordinal
         self._next_ordinal += 1
 
@@ -121,12 +126,69 @@ class SingleComputationTracker(ComputationTracker):
         self._id_to_tensor[tensor_id] = tensor.save_proxy()
         self._tensor_to_id[tensor._saved_id] = tensor_id
 
-        if getattr(u, 'grad_fn', None) is not None:
-            grad_id = id(tensor._saved_grad_fn)
-            inside = self._grad_fn_to_tensor.get(grad_id)
+        tensor_node = TensorNode(tensor=unwrap_proxy(tensor), tensor_id=tensor_id)
+        self._id_to_tensor_node[tensor_id] = tensor_node
+        self._cg.add_node(tensor_node, label=tensor_node.label, shape='box', tensor_id=tensor_id)
 
-            # print('adding', tensor_id, tensor._saved_grad_fn, '->', id(tensor), ':', tensor._saved_grad_fn.next_functions if hasattr(tensor._saved_grad_fn, 'next_functions') else None)
-            self._grad_fn_to_tensor[id(tensor._saved_grad_fn)] = tensor
+        if ordinal < 10:
+            print('hnt', ordinal, tensor._origin)
+
+        if self._use_origins:
+            #
+            # use tensor origin to continue graph
+            #
+            origin: Optional[TensorOrigin] = tensor._origin
+            if origin is not None:
+                op_node = OpNode(op=origin.op)
+                self._cg.add_node(op_node, label=op_node.label, style='filled', fillcolor='lightgray')
+                self._cg.add_edge(op_node, tensor_node)
+
+                self._origin_to_tensor_node[origin] = tensor_node
+
+                prev_origins = set(filter(None, list(origin.args) + list(p[1] for p in origin.kwargs)))
+                for prev_origin in prev_origins:
+                    prev_node = self._origin_to_tensor_node.get(prev_origin)
+                    if prev_node is not None:
+                        self._cg.add_edge(prev_node, op_node)
+        else:
+            #
+            # use grad_fn instead of origin
+            #
+            grad_fn = tensor._saved_grad_fn
+            if grad_fn is not None:
+                grad_id = id(grad_fn)
+                # inside = self._grad_fn_to_tensor.get(grad_id)
+
+                # if ordinal == 5:
+                #     print('_hnt', ordinal, tensor._saved_grad_fn)
+                #     print(dir(tensor._saved_grad_fn))
+                #     print(tensor._saved_grad_fn.next_functions)
+
+                grad_node = GradFnNode(grad_fn=grad_fn)
+                self._cg.add_node(grad_node, label=grad_node.label, style='filled', fillcolor='lightgray')
+                self._cg.add_edge(grad_node, tensor_node)
+
+                if hasattr(grad_fn, 'next_functions'):
+                    for next_f, _ in grad_fn.next_functions:
+                        if next_f is None:
+                            print('None next_f', ordinal, grad_fn)
+                            continue
+
+                        next_t = self._grad_fn_to_tensor_node.get(id(next_f))
+                        if next_t is not None:
+                            self._cg.add_edge(next_t, grad_node)
+                        else:
+                            print('warning', ordinal, grad_fn, '<-', next_f)
+                            self._cg.add_edge(next_f, grad_node)
+
+                # print('adding', tensor_id, tensor._saved_grad_fn, '->', id(tensor), ':', tensor._saved_grad_fn.next_functions if hasattr(tensor._saved_grad_fn, 'next_functions') else None)
+                self._grad_fn_to_tensor[grad_id] = tensor
+                self._grad_fn_to_tensor_node[grad_id] = tensor_node
+            else:
+                if ordinal > 14 and not self._dbg_wrote_origin:
+                    print('warning', ordinal, tensor_id, 'has no grad_fn')
+                    print('  origin', tensor._origin)
+                    self._dbg_wrote_origin = True
 
     def reset(self, *, inc_step=False):
         self._next_ordinal = 0
@@ -161,6 +223,8 @@ class SingleComputationTracker(ComputationTracker):
             self.log_activations()
 
     def build_graph(self, output: TensorProxy) -> 'ComputationGraph':
+        return ComputationGraph(g=self._cg)
+
         g = nx.DiGraph()
 
         class WorkItemType(IntEnum):
