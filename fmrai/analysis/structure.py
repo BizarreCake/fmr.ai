@@ -24,7 +24,7 @@ def find_multi_head_attention(cg: NiceComputationGraph) -> Generator[MultiHeadAt
                 bmm_ancestor = next(
                     t[1]
                     for t in nx.bfs_edges(cg.g, node, reverse=reverse, depth_limit=10)
-                    if isinstance(t[0], OpNode) and t[0].op == 'bmm'
+                    if isinstance(t[0], OpNode) and t[0].op == 'matmul'
                 )
             except StopIteration:
                 break

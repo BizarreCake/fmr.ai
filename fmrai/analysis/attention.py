@@ -299,7 +299,8 @@ class AttentionTracker(AnalysisTracker):
 
                 cmap = tracker.build_map()
                 if self._expected_cmap_size is not None:
-                    assert tracker.num_seen_tensors == self._expected_cmap_size
+                    if self._expected_cmap_size != tracker.num_seen_tensors:
+                        raise Exception(f'Expected {self._expected_cmap_size} tensors, got {tracker.num_seen_tensors} tensors.')
                 else:
                     self._expected_cmap_size = tracker.num_seen_tensors
                     filter_set = set(self._attention_tensor_ids)

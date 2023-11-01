@@ -130,8 +130,8 @@ class SingleComputationTracker(ComputationTracker):
         self._id_to_tensor_node[tensor_id] = tensor_node
         self._cg.add_node(tensor_node, label=tensor_node.label, shape='box', tensor_id=tensor_id)
 
-        if ordinal < 10:
-            print('hnt', ordinal, tensor._origin)
+        # if ordinal < 10:
+        #     print('hnt', ordinal, tensor._origin)
 
         if self._use_origins:
             #
@@ -727,6 +727,29 @@ class ComputationGraph:
 
     def save_dot(self, out_path: str):
         nx.drawing.nx_pydot.write_dot(self.g, out_path)
+
+    def make_small(self, limit: int) -> 'ComputationGraph':
+        to_remove = []
+
+        new_g = self.g.copy()
+
+        # remove all TensorNode instances whose tensor id is an ordinal greater or equal to the limit.
+        for node in new_g.nodes:
+            if isinstance(node, TensorNode) and isinstance(node.tensor_id, OrdinalTensorId) and node.tensor_id.ordinal >= limit:
+                to_remove.append(node)
+
+        # now remove these nodes and all edges connected to them
+        new_g.remove_nodes_from(to_remove)
+
+        # remove nodes not connected to anything
+        to_remove = []
+        for node in new_g.nodes:
+            if not list(new_g.predecessors(node)) and not list(new_g.successors(node)):
+                to_remove.append(node)
+
+        new_g.remove_nodes_from(to_remove)
+
+        return ComputationGraph(g=new_g)
 
     def make_nice(self) -> NiceComputationGraph:
         """

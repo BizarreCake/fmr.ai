@@ -9,6 +9,8 @@ from typing import Union, Any, Dict, Callable, Optional, List, Tuple, FrozenSet
 import torch
 from torch import Tensor, nn
 
+import bitsandbytes
+
 
 @dataclass
 class InstrumentationState:
@@ -72,11 +74,11 @@ class TensorProxyMeta(type):
 
         return super().__new__(cls, name, bases, attrs)
 
-    def __instancecheck__(cls, instance):
-        return isinstance(instance._wrapped, Tensor)
-
-    def __subclasscheck__(cls, subclass):
-        return issubclass(Tensor, subclass)
+    # def __instancecheck__(cls, instance):
+    #     return isinstance(instance._wrapped, Tensor)
+    #
+    # def __subclasscheck__(cls, subclass):
+    #     return issubclass(Tensor, subclass)
 
 
 def unwrap_proxy(t: Union['TensorProxy', Any], recursive=True):
@@ -153,9 +155,9 @@ def _make_tensor_origin(
 def make_proxy_function(fn, *, unwrap_args=True):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        print('pf', fn.__name__)
+        # print('pf', fn.__name__)
         # print('  args', [type(a) for a in args])
-        print('  kwargs', {k: type(v) for k, v in kwargs.items()})
+        # print('  kwargs', {k: type(v) for k, v in kwargs.items()})
 
         state = get_current_instrumentation_state()
         if state.disabled > 0:
@@ -184,9 +186,6 @@ def make_proxy_function(fn, *, unwrap_args=True):
 
         if isinstance(result, torch.Tensor) and state.call_depth == 0:
             origin = _make_tensor_origin(fn.__name__, args, kwargs, state=state)
-            if state.origin_counter < 10:
-                print('new tensor', origin)
-
             return _wrap_in_proxy(result, origin=origin)
 
         return result
@@ -234,6 +233,8 @@ class TensorProxy(metaclass=TensorProxyMeta):
         self._saved_grad_fn = wrapped.grad_fn if saved_grad_fn is None else saved_grad_fn
         self._saved_id = id(wrapped) if saved_id is None else saved_id
 
+        self.__class__ = Tensor
+
     def __getattr__(self, item):
         return getattr(self._wrapped, item)
 
@@ -250,7 +251,7 @@ class TensorProxy(metaclass=TensorProxyMeta):
         )
 
 
-_INSTRUMENTABLE_TORCH_FUNCTIONS = [
+_INSTRUMENTABLE_FUNCTIONS = [
     'torch.tensor',
     'torch.rand',
     'torch.randn',
@@ -280,13 +281,23 @@ _INSTRUMENTABLE_TORCH_FUNCTIONS = [
     'torch.nn.functional.silu',
     'torch.nn.functional.cross_entropy',
     'torch.nn.functional.embedding',
+
+    # bitsandbytes:
+    'bnb.matmul',
+    'bnb.matmul_4bit',
 ]
 
 
 def _resolve_module_and_fn(value):
-    mod = torch
     value_parts = value.split('.')
-    assert value_parts[0] == 'torch'
+
+    if value_parts[0] == 'torch':
+        mod = torch
+    elif value_parts[0] == 'bnb':
+        mod = bitsandbytes
+    else:
+        assert False
+
     for part in value_parts[1:-1]:
         mod = getattr(mod, part)
 
@@ -332,7 +343,7 @@ def instrument_pytorch_parameter():
 def instrument_pytorch():
     originals = {}
 
-    for value in _INSTRUMENTABLE_TORCH_FUNCTIONS:
+    for value in _INSTRUMENTABLE_FUNCTIONS:
         mod, fn, fn_name = _resolve_module_and_fn(value)
         originals[value] = fn
         setattr(mod, fn_name, make_proxy_function(fn, unwrap_args=True))
@@ -429,7 +440,7 @@ class PostInstrumentationProxy(metaclass=PostInstrumentationProxyMeta):
                 return existing
 
         if _is_wrappable_object(value) and type(value) is not PostInstrumentationProxy:
-            value = _post_instrument_wrappable_object(value)
+            value = _post_instrument_wrappable_object(value, key=key)
             if key:
                 self._wrapped_attrs[key] = value
             return value
@@ -454,11 +465,11 @@ class PostInstrumentationProxy(metaclass=PostInstrumentationProxyMeta):
                         cf = cell.cell_contents
                         if hasattr(cf, '__self__') and cf.__self__ is self._wrapped:
                             # closure_changes[cf] = self
-                            print('  closure change', key, cf.__name__)
+                            # print('  closure change', key, cf.__name__)
                             closure_changes[cf] = self.__instrument(None, cf)
 
             if closure_changes:
-                print('copying and changing function', key)
+                # print('copying and changing function', key)
                 value = _copy_function_and_change_closure(value, closure_changes)
 
             value = make_proxy_function(value, unwrap_args=unwrap_args)
@@ -485,7 +496,7 @@ class PostInstrumentationProxy(metaclass=PostInstrumentationProxyMeta):
         return self.__instrument(f'[{item}]', value)
 
     def __getattr__(self, item):
-        print('getattr', item, 'of', type(self._wrapped).__name__)
+        # print('getattr', item, 'of', type(self._wrapped).__name__)
         value = getattr(self._wrapped, item)
         return self.__instrument(item, value)
 
@@ -502,12 +513,12 @@ def _is_wrappable_object(obj):
     return isinstance(obj, (nn.Module, nn.Parameter, Tensor))
 
 
-def _post_instrument_wrappable_object(obj):
+def _post_instrument_wrappable_object(obj, *, key: Optional[str] = None):
     if type(obj) is PostInstrumentationProxy or type(obj) is TensorProxy:
         return obj
 
     if isinstance(obj, (Tensor, nn.Parameter)):
-        origin = _make_tensor_origin('parameter', args=(), kwargs={})
+        origin = _make_tensor_origin(f'parameter={key}', args=(), kwargs={})
         return _wrap_in_proxy(obj, origin=origin)
 
     # print('  _post_instrument_wrappable_object', type(obj))
