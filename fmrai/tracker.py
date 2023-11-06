@@ -5,7 +5,7 @@ import threading
 import re
 import subprocess
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, Enum, auto
 from typing import Union, Dict, Optional, Callable, Any, Iterable, List, Tuple, Iterator
 
 import networkx as nx
@@ -42,6 +42,10 @@ class NamedTensorId(TensorId):
         return f'@{self.name}'
 
 
+def _get_raw_op_text(origin: TensorOrigin):
+    return origin.op + ' ' + ','.join(str(x) for x in origin.args if isinstance(x, (int, float)))
+
+
 class ComputationTracker:
     def build_map(self):
         raise NotImplementedError()
@@ -64,7 +68,6 @@ class SingleComputationTracker(ComputationTracker):
         self._tracked_tensors = list(track_tensors) if track_tensors is not None else None
 
         self._cg: Optional[nx.DiGraph] = None
-        self._use_origins = True
         self._dbg_wrote_origin = False
 
     def set_root_model(self, model):
@@ -89,19 +92,19 @@ class SingleComputationTracker(ComputationTracker):
     def __exit__(self, exc_type, exc_val, exc_tb):
         remove_new_tensor_callback(self._handle_new_tensor)
 
-    def get_last_tensor(self) -> Optional[Tuple[OrdinalTensorId, TensorProxy]]:
-        """
-        Returns the tensors with the highest ordinal id.
-        """
-        result = max(
-            self._id_to_tensor.items(),
-            key=lambda p: p[0].ordinal if isinstance(p[0], OrdinalTensorId) else 0
-        )
-
-        if not isinstance(result[0], OrdinalTensorId):
-            return None
-
-        return result
+    # def get_last_tensor(self) -> Optional[Tuple[OrdinalTensorId, TensorProxy]]:
+    #     """
+    #     Returns the tensors with the highest ordinal id.
+    #     """
+    #     result = max(
+    #         self._id_to_tensor.items(),
+    #         key=lambda p: p[0].ordinal if isinstance(p[0], OrdinalTensorId) else 0
+    #     )
+    #
+    #     if not isinstance(result[0], OrdinalTensorId):
+    #         return None
+    #
+    #     return result
 
     @contextlib.contextmanager
     def no_track(self):
@@ -126,69 +129,30 @@ class SingleComputationTracker(ComputationTracker):
         self._id_to_tensor[tensor_id] = tensor.save_proxy()
         self._tensor_to_id[tensor._saved_id] = tensor_id
 
-        tensor_node = TensorNode(tensor=unwrap_proxy(tensor), tensor_id=tensor_id)
+        unwraped = unwrap_proxy(tensor)
+        tensor_node = TensorNode(tensor=unwraped, tensor_id=tensor_id, tensor_size=unwraped.size())
         self._id_to_tensor_node[tensor_id] = tensor_node
         self._cg.add_node(tensor_node, label=tensor_node.label, shape='box', tensor_id=tensor_id)
 
         # if ordinal < 10:
         #     print('hnt', ordinal, tensor._origin)
 
-        if self._use_origins:
-            #
-            # use tensor origin to continue graph
-            #
-            origin: Optional[TensorOrigin] = tensor._origin
-            if origin is not None:
-                op_node = OpNode(op=origin.op)
-                self._cg.add_node(op_node, label=op_node.label, style='filled', fillcolor='lightgray')
-                self._cg.add_edge(op_node, tensor_node)
+        #
+        # use tensor origin to continue graph
+        #
+        origin: Optional[TensorOrigin] = tensor._origin
+        if origin is not None:
+            op_node = RawOpNode(op=_get_raw_op_text(origin), origin=origin)
+            self._cg.add_node(op_node, label=op_node.label, style='filled', fillcolor='lightgray')
+            self._cg.add_edge(op_node, tensor_node)
 
-                self._origin_to_tensor_node[origin] = tensor_node
+            self._origin_to_tensor_node[origin] = tensor_node
 
-                prev_origins = set(filter(None, list(origin.args) + list(p[1] for p in origin.kwargs)))
-                for prev_origin in prev_origins:
-                    prev_node = self._origin_to_tensor_node.get(prev_origin)
-                    if prev_node is not None:
-                        self._cg.add_edge(prev_node, op_node)
-        else:
-            #
-            # use grad_fn instead of origin
-            #
-            grad_fn = tensor._saved_grad_fn
-            if grad_fn is not None:
-                grad_id = id(grad_fn)
-                # inside = self._grad_fn_to_tensor.get(grad_id)
-
-                # if ordinal == 5:
-                #     print('_hnt', ordinal, tensor._saved_grad_fn)
-                #     print(dir(tensor._saved_grad_fn))
-                #     print(tensor._saved_grad_fn.next_functions)
-
-                grad_node = GradFnNode(grad_fn=grad_fn)
-                self._cg.add_node(grad_node, label=grad_node.label, style='filled', fillcolor='lightgray')
-                self._cg.add_edge(grad_node, tensor_node)
-
-                if hasattr(grad_fn, 'next_functions'):
-                    for next_f, _ in grad_fn.next_functions:
-                        if next_f is None:
-                            print('None next_f', ordinal, grad_fn)
-                            continue
-
-                        next_t = self._grad_fn_to_tensor_node.get(id(next_f))
-                        if next_t is not None:
-                            self._cg.add_edge(next_t, grad_node)
-                        else:
-                            print('warning', ordinal, grad_fn, '<-', next_f)
-                            self._cg.add_edge(next_f, grad_node)
-
-                # print('adding', tensor_id, tensor._saved_grad_fn, '->', id(tensor), ':', tensor._saved_grad_fn.next_functions if hasattr(tensor._saved_grad_fn, 'next_functions') else None)
-                self._grad_fn_to_tensor[grad_id] = tensor
-                self._grad_fn_to_tensor_node[grad_id] = tensor_node
-            else:
-                if ordinal > 14 and not self._dbg_wrote_origin:
-                    print('warning', ordinal, tensor_id, 'has no grad_fn')
-                    print('  origin', tensor._origin)
-                    self._dbg_wrote_origin = True
+            prev_origins = set(filter(None, list(origin.args) + list(p[1] for p in origin.kwargs)))
+            for prev_origin in prev_origins:
+                prev_node = self._origin_to_tensor_node.get(prev_origin)
+                if prev_node is not None:
+                    self._cg.add_edge(prev_node, op_node)
 
     def reset(self, *, inc_step=False):
         self._next_ordinal = 0
@@ -222,172 +186,22 @@ class SingleComputationTracker(ComputationTracker):
         if activations:
             self.log_activations()
 
-    def build_graph(self, output: TensorProxy) -> 'ComputationGraph':
-        return ComputationGraph(g=self._cg)
+    def build_graph(
+            self,
+            y: Optional[TensorProxy] = None,
+            *,
+            keep_tensors=False,
+            limit=None,
+    ) -> 'NiceComputationGraph':
+        if y is not None:
+            raise NotImplementedError('y is not supported yet')
 
-        g = nx.DiGraph()
+        raw_graph = RawComputationGraph(g=self._cg)
 
-        class WorkItemType(IntEnum):
-            TENSOR = 0
-            GRAD_FN = 1
+        if limit is not None:
+            raw_graph = raw_graph.make_small(limit=limit)
 
-        @dataclass
-        class WorkItem:
-            type: WorkItemType
-            value: Union[Tensor, TensorProxy, torch.autograd.Function]
-            callback: Optional[Callable[[Any], None]]
-            kwargs: Optional[Dict[str, Any]] = None
-
-        work = [WorkItem(type=WorkItemType.TENSOR, value=output, callback=None)]
-
-        def visit_grad_fn(f: torch.autograd.Function, **_kwargs):
-            assert f is not None
-
-            node = GradFnNode(grad_fn=f)
-
-            # print('visit_grad_fn', f, f.next_functions if hasattr(f, 'next_functions') else None)
-
-            g.add_node(node, label=node.label, style='filled', fillcolor='lightgray')
-
-            if hasattr(f, 'next_functions'):
-                for prev_f, i in f.next_functions:
-                    if prev_f is None:
-                        continue
-
-                    prev_tensor = self._grad_fn_to_tensor.get(id(prev_f))
-                    # print('  prev_f', prev_f, id(prev_tensor), prev_tensor._saved_grad_fn if prev_tensor is not None else None)
-                    if prev_tensor is not None:
-                        prev_grad_fn = prev_tensor._saved_grad_fn
-                    else:
-                        prev_grad_fn = None
-
-                    if prev_tensor is not None and prev_grad_fn is prev_f:
-                        # print('    enq ten', id(prev_tensor), self._tensor_to_id.get(id(prev_tensor)))
-                        work.append(WorkItem(
-                            type=WorkItemType.TENSOR,
-                            value=prev_tensor,
-                            callback=lambda n: g.add_edge(n, node)
-                        ))
-                    else:
-                        # print('    enq grad_fn', prev_f)
-                        work.append(WorkItem(
-                            type=WorkItemType.GRAD_FN,
-                            value=prev_f,
-                            callback=lambda n: g.add_edge(n, node)
-                        ))
-
-            if hasattr(f, 'variable'):
-                var = f.variable
-                if isinstance(var, Parameter):
-                    # find the most qualified name for this parameter
-                    seen_names = []
-                    for mod in get_current_instrumentation_state().seen_modules:
-                        for name, param in mod.named_parameters():
-                            if param is var:
-                                # add name node
-                                seen_names.append(name)
-
-                    # find longest name and use that
-                    if seen_names:
-                        longest_name = max(seen_names, key=len)
-
-                        def callback(n):
-                            g.add_edge(n, node)
-                            g.nodes[n]['fillcolor'] = 'thistle'
-
-                        work.append(WorkItem(
-                            type=WorkItemType.TENSOR,
-                            value=var,
-                            kwargs={'tensor_id': NamedTensorId(name=longest_name)},
-                            callback=callback
-                        ))
-
-                elif isinstance(var, Tensor):
-                    work.append(WorkItem(
-                        type=WorkItemType.TENSOR,
-                        value=var,
-                        callback=lambda n: g.add_edge(n, node)
-                    ))
-                else:
-                    raise NotImplementedError()
-
-            return node
-
-        def visit_tensor(
-                t: Union[TensorProxy, nn.Parameter],
-                *,
-                tensor_id: Optional[TensorId] = None
-        ):
-            assert type(t) in (TensorProxy, nn.Parameter)
-            assert t is not None
-
-            u = unwrap_proxy(t)
-            if tensor_id is None:
-                if type(t) == TensorProxy:
-                    raw_id = t._saved_id
-                else:
-                    raw_id = id(t)
-
-                tensor_id = self._tensor_to_id.get(raw_id)
-
-            if type(t) is TensorProxy:
-                grad_fn = t._saved_grad_fn
-            else:
-                grad_fn = u.grad_fn
-
-            # print('visit_tensor', type(t), id(t), tensor_id, grad_fn)
-
-            node = TensorNode(
-                tensor=u,
-                tensor_id=tensor_id,
-            )
-
-            kwargs = {
-                'style': 'filled',
-                'fillcolor': 'white'
-            }
-            if u.requires_grad and grad_fn is None and not isinstance(t, nn.Parameter):
-                kwargs['style'] = 'filled'
-                kwargs['fillcolor'] = 'wheat'
-
-            g.add_node(node, label=node.label, shape='box', tensor_id=tensor_id, **kwargs)
-
-            def callback(n):
-                g.add_edge(n, node)
-
-            if grad_fn is not None:
-                work.append(WorkItem(
-                    type=WorkItemType.GRAD_FN,
-                    value=grad_fn,
-                    callback=callback,
-                ))
-
-            return node
-
-        # handle all work to completion
-        seen = {}
-        while work:
-            item = work.pop()
-            # TODO: make sure id() here is correct, since TensorProxy's can store
-            #       a different tensor if .save_proxy() is called
-            if id(item.value) in seen:
-                # just call callback
-                item.callback(seen[id(item.value)])
-                continue
-
-            if item.type == WorkItemType.TENSOR:
-                node = visit_tensor(item.value, **(item.kwargs or {}))
-            elif item.type == WorkItemType.GRAD_FN:
-                node = visit_grad_fn(item.value, **(item.kwargs or {}))
-            else:
-                raise NotImplementedError()
-
-            seen[id(item.value)] = node
-
-            if node is not None and item.callback is not None:
-                item.callback(node)
-
-        return ComputationGraph(g=g)
+        return NiceComputationGraph.from_raw(raw_graph, keep_tensors=keep_tensors)
 
     def build_map(self) -> 'ComputationMap':
         if self._tracked_tensors:
@@ -452,15 +266,15 @@ class GraphNode:
 
 
 @dataclass
-class TensorStubNode(GraphNode):
+class BaseTensorNode(GraphNode):
     tensor_id: TensorId
     tensor_size: torch.Size
 
     def __hash__(self):
-        return hash(('tensor_stub', self.tensor_id))
+        return hash(('tensor_base', self.tensor_id))
 
     def __eq__(self, other):
-        return isinstance(other, TensorStubNode) and self.tensor_id == other.tensor_id
+        return type(other) is type(self) and self.tensor_id == other.tensor_id
 
     @property
     def label(self):
@@ -472,9 +286,14 @@ class TensorStubNode(GraphNode):
 
 
 @dataclass
-class TensorNode(GraphNode):
+class TensorStubNode(BaseTensorNode):
+    def __hash__(self):
+        return hash(('tensor_stub', self.tensor_id))
+
+
+@dataclass
+class TensorNode(BaseTensorNode):
     tensor: Tensor
-    tensor_id: TensorId
 
     def __hash__(self):
         return hash(('tensor', self.tensor_id, self.tensor))
@@ -515,8 +334,9 @@ class GradFnNode(GraphNode):
 
 
 @dataclass
-class OpNode(GraphNode):
+class RawOpNode(GraphNode):
     op: str
+    origin: Optional[TensorOrigin]
 
     def __hash__(self):
         return hash(('op', self.op))
@@ -527,6 +347,55 @@ class OpNode(GraphNode):
     @property
     def label(self):
         return self.op
+
+    def __repr__(self):
+        return f'{self.label} @ {id(self):08x}'
+
+
+class TensorOp(int, Enum):
+    SOFTMAX = auto()
+    TANH = auto()
+    GELU = auto()
+    ADD = auto()
+    MUL = auto()
+    POW = auto()
+    ADDMM = auto()
+    LINEAR = auto()
+    OTHER = auto()
+
+
+@dataclass
+class ConstantNode(GraphNode):
+    value: Any
+
+    def __hash__(self):
+        return hash(id(self))
+
+    def __eq__(self, other):
+        return self is other
+
+    @property
+    def label(self):
+        return str(self.value)
+
+    def __repr__(self):
+        return f'{self.label} @ {id(self):08x}'
+
+
+@dataclass
+class OpNode(GraphNode):
+    op: TensorOp
+    origin: TensorOrigin
+
+    def __hash__(self):
+        return hash(('op', self.op))
+
+    def __eq__(self, other):
+        return self is other
+
+    @property
+    def label(self):
+        return self.op.name.lower()
 
     def __repr__(self):
         return f'{self.label} @ {id(self):08x}'
@@ -556,7 +425,7 @@ class ComputationMap:
         raise NotImplementedError()
 
     def __iter__(self) -> Iterator[TensorId]:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def save_to_dir(self, dir_path: str, time_step: int = 0):
         raise NotImplementedError()
@@ -693,7 +562,7 @@ class BatchedComputationMap(ComputationMap):
 
 
 @dataclass
-class NiceComputationGraph:
+class ComputationGraph:
     g: nx.DiGraph
 
     def save_dot(self, out_path: str):
@@ -716,19 +585,11 @@ class NiceComputationGraph:
             return pickle.load(f)
 
 
-def nice_grad_fn_label(grad_fn: torch.autograd.Function) -> str:
-    cls_name = type(grad_fn).__name__
-    return re.sub(f'Backward\d+', '', cls_name).lower()
-
-
 @dataclass
-class ComputationGraph:
+class RawComputationGraph(ComputationGraph):
     g: nx.DiGraph
 
-    def save_dot(self, out_path: str):
-        nx.drawing.nx_pydot.write_dot(self.g, out_path)
-
-    def make_small(self, limit: int) -> 'ComputationGraph':
+    def make_small(self, limit: int) -> 'RawComputationGraph':
         to_remove = []
 
         new_g = self.g.copy()
@@ -749,168 +610,107 @@ class ComputationGraph:
 
         new_g.remove_nodes_from(to_remove)
 
-        return ComputationGraph(g=new_g)
+        return RawComputationGraph(g=new_g)
 
-    def make_nice(self) -> NiceComputationGraph:
-        """
-        Cleans up the graph for better viewing.
-        """
-        g = self.g.copy()
 
-        # g.graph['graph'] = {'rankdir': 'LR', 'ranksep': 0}
+def _replace_graph_node(g: nx.DiGraph, old, new, **attrs):
+    g.add_node(new, **attrs)
+
+    # add edges from all predecessors to the new node
+    for pred in g.predecessors(old):
+        g.add_edge(pred, new)
+
+    # add edges from the new node to all successors
+    for succ in g.successors(old):
+        g.add_edge(new, succ)
+
+    # finally, remove old node
+    g.remove_node(old)
+
+
+
+_ONE_ARG_OPS = {
+    'tanh': TensorOp.TANH,
+    'softmax': TensorOp.SOFTMAX,
+    'gelu': TensorOp.GELU,
+}
+
+_TWO_ARG_OPS = {
+    '__add__': TensorOp.ADD,
+    '__mul__': TensorOp.MUL,
+}
+
+_TWO_ARG_ONE_CONST_OPS = {
+    '__radd__': TensorOp.ADD,
+    '__rmul__': TensorOp.MUL,
+    'pow': TensorOp.POW,
+}
+
+_ANY_OPS = {
+    'addmm': TensorOp.ADDMM,
+    'linear': TensorOp.LINEAR,
+}
+
+
+def _convert_raw_op_node(g: nx.DiGraph, node: RawOpNode):
+    op = _ONE_ARG_OPS.get(node.origin.op)
+    if op is not None and len(node.origin.args) == 1 and isinstance(node.origin.args[0], TensorOrigin):
+        return OpNode(op=op, origin=node.origin)
+
+    op = _TWO_ARG_OPS.get(node.origin.op)
+    if op is not None and len(node.origin.args) == 2 and all(isinstance(arg, TensorOrigin) for arg in node.origin.args):
+        return OpNode(op=op, origin=node.origin)
+
+    op = _TWO_ARG_ONE_CONST_OPS.get(node.origin.op)
+    if op is not None and sum(int(isinstance(arg, (int, float))) for arg in node.origin.args) == 1:
+        arg = next(arg for arg in node.origin.args if isinstance(arg, (int, float)))
+
+        # add constant node to graph
+        constant_node = ConstantNode(value=arg)
+        g.add_node(constant_node, label=constant_node.label, shape='triangle', style='filled', fillcolor='#d9f6ff')
+
+        result_node = OpNode(op=op, origin=node.origin)
+        g.add_edge(constant_node, result_node)
+        return result_node
+
+    op = _ANY_OPS.get(node.origin.op)
+    if op is not None:
+        return OpNode(op=op, origin=node.origin)
+
+    return OpNode(op=TensorOp.OTHER, origin=node.origin)
+
+
+def _get_dot_node_attrs(node):
+    label = node.label
+    style = '"filled,solid"'
+    fillcolor = 'white'
+
+    if isinstance(node, OpNode):
+        fillcolor = 'lightgray'
+        if node.op == TensorOp.OTHER:
+            style = '"filled,dashed"'
+            label = _get_raw_op_text(node.origin)
+
+    return dict(
+        label=label,
+        style=style,
+        fillcolor=fillcolor,
+    )
+
+
+class NiceComputationGraph(ComputationGraph):
+    @staticmethod
+    def from_raw(rg: RawComputationGraph, *, keep_tensors=False):
+        g = rg.g.copy()
 
         for node in list(g.nodes):
-            # remove AccumulateGrad nodes
-            if isinstance(node, GradFnNode) and node.grad_fn.__class__.__name__ == 'AccumulateGrad':
-                # reconnect edges
-                for pred in list(g.predecessors(node)):
-                    for succ in list(g.successors(node)):
-                        g.add_edge(pred, succ)
+            if isinstance(node, RawOpNode):
+                op_node = _convert_raw_op_node(g, node)
+                _replace_graph_node(g, node, op_node, **_get_dot_node_attrs(op_node))
 
-                g.remove_node(node)
-                continue
-
-            # turn all GradFnNode into OpNode
-            elif isinstance(node, GradFnNode):
-                op_node = OpNode(op=nice_grad_fn_label(node.grad_fn))
-                g.add_node(
-                    op_node,
-                    label=op_node.label,
-                    shape='diamond',
-                    style='filled',
-                    fillcolor='lightgray'
-                )
-
-                for pred in list(g.predecessors(node)):
-                    g.add_edge(pred, op_node)
-                for succ in list(g.successors(node)):
-                    g.add_edge(op_node, succ)
-
-                g.remove_node(node)
-                continue
-
-            # convert tensor nodes to stub nodes
-            elif isinstance(node, TensorNode):
+            elif isinstance(node, TensorNode) and not keep_tensors:
+                # replace with stubs
                 stub_node = TensorStubNode(tensor_id=node.tensor_id, tensor_size=node.tensor.size())
-                g.add_node(
-                    stub_node,
-                    label=stub_node.label,
-                    shape='box',
-                    style='filled',
-                    fillcolor='white' if isinstance(node.tensor_id, OrdinalTensorId) else 'thistle'
-                )
-
-                for pred in list(g.predecessors(node)):
-                    g.add_edge(pred, stub_node)
-                for succ in list(g.successors(node)):
-                    g.add_edge(stub_node, succ)
-
-                g.remove_node(node)
-                continue
+                _replace_graph_node(g, node, stub_node, **_get_dot_node_attrs(stub_node))
 
         return NiceComputationGraph(g=g)
-
-
-def test_my_bert():
-    torch.manual_seed(42)
-
-    with tracker_scope() as tracker:
-        config = reai.bert.base.BertConfig(
-            vocab_size=8,
-            hidden_size=4,
-            num_heads=1,
-            num_layers=1,
-            max_len=16,
-            attention_type=reai.bert.base.BertAttentionType.STANDARD,
-        )
-
-        model = reai.bert.base.BertModelForMaskedLM(config)
-        optimizer = torch.optim.Adam(model.parameters())
-
-        for _ in range(3):
-            torch.manual_seed(42)
-            x = torch.randint(0, 7, (1, 4))
-            labels = torch.randint(0, 7, (1, 4,))
-            print(x)
-
-            y = model(x, labels=labels)
-            print('loss', y.loss)
-
-            mp = tracker.build_map()
-            print(mp)
-
-            y.loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-
-            tracker.step()
-
-        graph = tracker.build_graph(y.loss)
-
-    # export graph to svg
-    nx.drawing.nx_pydot.write_dot(graph, 'bert.dot')
-    subprocess.check_call(['dot', '-Tsvg', 'bert.dot', '-o', 'bert.svg'])
-
-
-def test_gradient_tracker():
-    torch.manual_seed(42)
-    ref_att = nn.MultiheadAttention(embed_dim=4, num_heads=1, batch_first=True)
-
-    snapshots = []
-
-    with tracker_scope() as tracker:
-        torch.manual_seed(42)
-        # ref_att = nn.MultiheadAttention(embed_dim=4, num_heads=1, batch_first=True)
-        # att = ref_att
-        att = reai.bert.base.BaseMultiHeadAttention(embed_dim=4, num_heads=1)
-        att.copy_weights_from_standard_impl(ref_att)
-
-        optimizer = torch.optim.Adam(att.parameters())
-
-        for i in range(1):
-            torch.manual_seed(42)
-            x = torch.randn((1, 4, 4), requires_grad=True)
-            y = att(x, x, x)[0]
-
-            torch.manual_seed(42)
-            clf = nn.Linear(4, 1)
-            z = clf(y).sum()
-
-            z.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-
-            if i % 50 == 0:
-                snap = tracker.build_map()
-                print('snap', len(snap.data))
-                print(z)
-                snapshots.append(snap)
-
-            tracker.step()
-
-    # # export graph to svg
-    # nx.drawing.nx_pydot.write_dot(graph, 'test.dot')
-    # subprocess.check_call(['dot', '-Tsvg', 'test.dot', '-o', 'test.svg'])
-
-    # dot = torchviz.make_dot(z, show_attrs=True, show_saved=True)
-    # with open('test.svg', 'w') as f:
-    #     f.write(dot._repr_image_svg_xml())
-
-
-def test_track_operation():
-    torch.manual_seed(42)
-
-    with tracker_scope() as tracker:
-        a = torch.randn((4, 4))
-        b = torch.randn((4, 4))
-        c = a * b
-        d = c + a
-
-        mp = tracker.build_map()
-        print(mp)
-
-
-if __name__ == '__main__':
-    test_gradient_tracker()
-    # test_track_operation()
-    # test_my_bert()

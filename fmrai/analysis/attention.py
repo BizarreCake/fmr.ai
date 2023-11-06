@@ -1,8 +1,6 @@
-import collections
-import contextlib
 import os
 import time
-from typing import List, Optional, Deque
+from typing import List, Optional, Iterable
 
 import numpy as np
 import torch
@@ -10,7 +8,7 @@ from pydantic import BaseModel
 from torch import Tensor
 from tqdm import tqdm
 
-from fmrai.analysis.common import DatasetInfo, AnalysisTracker
+from fmrai.analysis.common import DatasetInfo, AnalysisTracker, Analyzer, AnalysisAccumulator
 from fmrai.analysis.structure import find_multi_head_attention
 from fmrai.fmrai import get_fmrai
 from fmrai.instrument import unwrap_proxy
@@ -154,7 +152,7 @@ class AttentionHeadClusteringResult(BaseModel):
         )
 
 
-class AttentionHeadClusteringAccumulator:
+class AttentionHeadClusteringAccumulator(AnalysisAccumulator):
     def __init__(self, attention_tensors: List[TensorId]):
         self._attention_tensors = attention_tensors
         self._accumulated_result: Optional[np.ndarray] = None
@@ -246,31 +244,36 @@ def compute_attention_head_clustering(
 
 class AttentionTracker(AnalysisTracker):
     def __init__(self):
+        super().__init__()
         self._attention_tensor_ids: Optional[List[TensorId]] = None
         self._expected_cmap_size: Optional[int] = None
-        self._cmaps: Deque[ComputationMap] = collections.deque()
 
-    def __bool__(self):
-        return len(self._cmaps) > 0
+    def _process_batch(self, cmap: ComputationMap, tracker: SingleComputationTracker):
+        if self._attention_tensor_ids is None:
+            self._find_attention_tensors(tracker)
 
-    def consume_batch(self) -> ComputationMap:
-        return self._cmaps.popleft()
+        if self._expected_cmap_size is not None:
+            if self._expected_cmap_size != tracker.num_seen_tensors:
+                raise Exception(f'Expected {self._expected_cmap_size} tensors, got {tracker.num_seen_tensors} tensors.')
+        else:
+            self._expected_cmap_size = tracker.num_seen_tensors
+            filter_set = set(self._attention_tensor_ids)
+            cmap = cmap.filter_ids(lambda x: x in filter_set)
+
+        return cmap
+
+    def _get_tracked_tensors(self) -> Optional[Iterable[TensorId]]:
+        return self.attention_tensor_ids
 
     @property
     def attention_tensor_ids(self) -> Optional[List[TensorId]]:
         return self._attention_tensor_ids
 
-    def get_computation_map(self) -> BatchedComputationMap:
-        return BatchedComputationMap(batches=list(self._cmaps))
-
     def _find_attention_tensors(self, tracker: SingleComputationTracker):
         """
         Called after processing the first batch to find the ids of the attention tensors.
         """
-        last = tracker.get_last_tensor()
-        assert last is not None
-
-        cg = tracker.build_graph(last[1]).make_nice()
+        cg = tracker.build_graph()
         result = list(find_multi_head_attention(cg))
 
         self._attention_tensor_ids = [
@@ -278,68 +281,13 @@ class AttentionTracker(AnalysisTracker):
             for instance in result
         ]
 
-    def _process_computation_map(self, cmap: ComputationMap):
-        self._cmaps.append(cmap)
 
-    @contextlib.contextmanager
-    def track_batch(self):
-        fmr = get_fmrai()
+class AttentionHeadClusterAnalyzer(Analyzer):
+    def _create_tracker(self) -> AnalysisTracker:
+        return AttentionTracker()
 
-        try:
-            with fmr.track(
-                    track_tensors=self._attention_tensor_ids
-            ) as tracker:
-                tracker: SingleComputationTracker
-
-                # pass control back and wait for computation
-                yield
-
-                if self._attention_tensor_ids is None:
-                    self._find_attention_tensors(tracker)
-
-                cmap = tracker.build_map()
-                if self._expected_cmap_size is not None:
-                    if self._expected_cmap_size != tracker.num_seen_tensors:
-                        raise Exception(f'Expected {self._expected_cmap_size} tensors, got {tracker.num_seen_tensors} tensors.')
-                else:
-                    self._expected_cmap_size = tracker.num_seen_tensors
-                    filter_set = set(self._attention_tensor_ids)
-                    cmap = cmap.filter_ids(lambda x: x in filter_set)
-
-                self._process_computation_map(cmap)
-        finally:
-            pass
-
-
-class AttentionHeadClusterAnalyzer:
-    def __init__(self, tracker: Optional[AttentionTracker] = None):
-        self._tracker = tracker
-        self._accumulator: Optional[AttentionHeadClusteringAccumulator] = None
-        self._first_batch: Optional[ComputationMap] = None
-
-    @property
-    def tracker(self):
-        if self._tracker is None:
-            self._tracker = AttentionTracker()
-        return self._tracker
-
-    def _consume_batch_from_tracker(self):
-        with get_fmrai().pause():
-            batch = self.tracker.consume_batch()
-            if self._first_batch is None:
-                self._first_batch = batch
-
-            self._accumulator.process_batch(batch)
-
-    @contextlib.contextmanager
-    def track_batch(self):
-        with self.tracker.track_batch():
-            yield
-
-        if self._accumulator is None:
-            self._accumulator = AttentionHeadClusteringAccumulator(self.tracker.attention_tensor_ids)
-
-        self._consume_batch_from_tracker()
+    def _create_accumulator(self) -> AnalysisAccumulator:
+        return AttentionHeadClusteringAccumulator(self.tracker.attention_tensor_ids)
 
     def analyze(self):
         """ Analyzes all available output produced by the tracker(s). """

@@ -106,24 +106,48 @@ def _wrap_in_proxy(t: Tensor, *, origin: Optional['TensorOrigin'] = None):
     return proxy
 
 
-def _try_wrap_in_proxy(value, *, op: Optional[str] = None):
+def _wrap_single_arg_in_proxy(
+        value,
+        *,
+        origin: Optional['TensorOrigin'] = None,
+        op: Optional[str] = None
+):
     if type(value) is TensorProxy:
         # print('wrap arg tensor proxy', op)
         pass
 
     if type(value) is Tensor:
-        origin = _make_tensor_origin(op, args=(), kwargs={})
+        if origin is None:
+            origin = _make_tensor_origin(op, args=(), kwargs={})
+
         return _wrap_in_proxy(value, origin=origin)
 
     if isinstance(value, dict):
-        return {k: _try_wrap_in_proxy(v) for k, v in value.items()}
+        return {k: _wrap_single_arg_in_proxy(v) for k, v in value.items()}
+
+    return value
+
+
+def _wrap_ret_val_in_proxy(value, fn_name, args, kwargs, state):
+    if type(value) is TensorProxy:
+        return value
+
+    if type(value) is torch.Tensor:
+        origin = _make_tensor_origin(fn_name, args, kwargs, state=state)
+        return _wrap_in_proxy(value, origin=origin)
+
+    if isinstance(value, tuple):
+        return tuple(
+            _wrap_ret_val_in_proxy(v, fn_name + f'.{i}', args, kwargs, state)
+            for i, v in enumerate(value)
+        )
 
     return value
 
 
 def _wrap_args_in_proxy(args, kwargs, *, op_base: str):
-    args = tuple(_try_wrap_in_proxy(a, op=f'wrap${op_base}(.{i}=X)') for i, a in enumerate(args))
-    kwargs = {k: _try_wrap_in_proxy(v, op=f'wrap${op_base}({k}=X)') for k, v in kwargs.items()}
+    args = tuple(_wrap_single_arg_in_proxy(a, op=f'wrap${op_base}(.{i}=X)') for i, a in enumerate(args))
+    kwargs = {k: _wrap_single_arg_in_proxy(v, op=f'wrap${op_base}({k}=X)') for k, v in kwargs.items()}
     return args, kwargs
 
 
@@ -181,24 +205,23 @@ def make_proxy_function(fn, *, unwrap_args=True):
         finally:
             state.call_depth -= depth_delta
 
-        if type(result) is TensorProxy:
-            return result
-
-        if isinstance(result, torch.Tensor) and state.call_depth == 0:
-            origin = _make_tensor_origin(fn.__name__, args, kwargs, state=state)
-            return _wrap_in_proxy(result, origin=origin)
+        if state.call_depth == 0:
+            return _wrap_ret_val_in_proxy(result, fn.__name__, args, kwargs, state)
 
         return result
 
     return wrapper
 
 
+TensorOriginArg = Union[int, float, 'TensorOrigin', None]
+
+
 @dataclass(frozen=True)
 class TensorOrigin:
     index: Optional[int]
     op: str
-    args: Tuple[Optional['TensorOrigin']]
-    kwargs: FrozenSet[Tuple[str, Optional['TensorOrigin']]]
+    args: Tuple[TensorOriginArg]
+    kwargs: FrozenSet[Tuple[str, TensorOriginArg]]
 
     def __hash__(self):
         return hash((self.index, self.op))
@@ -214,6 +237,10 @@ class TensorOrigin:
 def get_proxy_origin(t: Union['TensorProxy', Any]) -> Optional[TensorOrigin]:
     if type(t) is TensorProxy:
         return t._origin
+
+    if isinstance(t, (int, float)):
+        return t
+
     return None
 
 
@@ -270,6 +297,8 @@ _INSTRUMENTABLE_FUNCTIONS = [
     'torch.embedding',
     'torch.sort',
     'torch.unique',
+    'torch.addmm',
+    'torch.pow',
 
     'torch.nn.functional.linear',
     'torch.nn.functional.softmax',
