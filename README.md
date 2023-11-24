@@ -11,6 +11,12 @@ On top of this, fMRAi provides a set of tools for analyzing and visualizing the 
 
 **NOTE**: This project is currently very much a work in progress, and is in a very early state right now.
 
+## Installation
+
+```
+pip install fmrai
+```
+
 ## Implemented Features
 
 ### Instrumentation

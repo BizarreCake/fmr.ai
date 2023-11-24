@@ -4,7 +4,6 @@ import operator
 import os
 from typing import Optional
 
-import PIL
 import torch.nn.functional
 from torch import Tensor
 
@@ -127,7 +126,7 @@ def prepare_image_tensor(tensor: Tensor):
     return tensor.detach().cpu()
 
 
-def tensor_to_image(tensor: Tensor) -> PIL.Image:
+def tensor_to_image(tensor: Tensor) -> 'PIL.Image':
     tensor = prepare_image_tensor(tensor)
 
     if len(tensor.size()) == 1:
