@@ -6,7 +6,6 @@ from typing import Optional
 
 import PIL
 import torch.nn.functional
-import torchvision.transforms
 from torch import Tensor
 
 from fmrai.instrument import unwrap_proxy
@@ -138,6 +137,7 @@ def tensor_to_image(tensor: Tensor) -> PIL.Image:
     if len(tensor.size()) != 2:
         return None
 
+    import torchvision.transforms
     transform = torchvision.transforms.ToPILImage()
     img = transform(tensor.unsqueeze(0))
     return img

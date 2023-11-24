@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "runtime"
+name = "fmrai"
 version = "0.1.0"
 description = ""
 authors = ["Jacob Zhitomirsky <bizarrecake@gmail.com>"]
