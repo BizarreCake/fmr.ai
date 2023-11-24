@@ -1,4 +1,4 @@
-# fMRAi
+# fMRaI
 
 An explainability and interpretability framework for understanding deep neural networks.
 
