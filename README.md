@@ -4,7 +4,7 @@ An explainability and interpretability framework for understanding deep neural n
 
 In pursuit of this endeavor, this framework provides a way to **dynamically instrument any\* PyTorch model** and access its full computation graph and intermediate activations.
 
-On top of this, fMRAi provides a set of tools for analyzing and visualizing the model's behavior, including:
+On top of this, fMRaI provides a set of tools for analyzing and visualizing the model's behavior, including:
 * Transformer attention head clustering and analysis
 * Key-value memory analysis (started)
 * and in the future, more! (see future steps at the end of this readme)
@@ -21,7 +21,7 @@ pip install fmrai
 
 ### Instrumentation
 
-fMRAi provides a general framework for instrumenting deep neural networks.
+fMRaI provides a general framework for instrumenting deep neural networks.
 
 Here's how to instrument a hugging face model and obtain its computation graph (unlike autodiff graph, this graph contains tensors, with all intermediate activations):
 ```python
