@@ -1,6 +1,7 @@
 import collections
 import contextlib
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Optional, Deque, Iterable
 
 import networkx as nx
@@ -10,9 +11,14 @@ from fmrai.fmrai import get_fmrai
 from fmrai.tracker import ComputationMap, SingleComputationTracker, TensorId
 
 
+@dataclass
+class Batch:
+    cmap: ComputationMap
+
+
 class AnalysisAccumulator(ABC):
     @abstractmethod
-    def process_batch(self, cmap: ComputationMap):
+    def process_batch(self, batch: Batch):
         raise NotImplementedError()
 
     @abstractmethod
@@ -39,7 +45,7 @@ class AnalysisTracker:
         return None
 
     @contextlib.contextmanager
-    def track_batch(self):
+    def track_batch(self, *args, **kwargs):
         """
         Returns a context manager that will process a single batch within its scope.
         """
@@ -60,9 +66,11 @@ class AnalysisTracker:
         """ Returns true if consume_batch() has any output."""
         return len(self._cmaps) > 0
 
-    def consume_batch(self) -> 'ComputationMap':
+    def consume_batch(self) -> Batch:
         """ Pops the next batch. """
-        return self._cmaps.popleft()
+        return Batch(
+            cmap=self._cmaps.popleft(),
+        )
 
 
 class Analyzer(ABC):
@@ -72,7 +80,7 @@ class Analyzer(ABC):
     ):
         self._tracker = tracker
         self._accumulator: Optional[AnalysisAccumulator] = None
-        self._first_batch: Optional[ComputationMap] = None
+        self._first_batch: Optional[Batch] = None
 
     @property
     def tracker(self):
@@ -89,8 +97,8 @@ class Analyzer(ABC):
             self._accumulator.process_batch(batch)
 
     @contextlib.contextmanager
-    def track_batch(self):
-        with self.tracker.track_batch():
+    def track_batch(self, *args, **kwargs):
+        with self.tracker.track_batch(*args, **kwargs):
             yield
 
         if self._accumulator is None:
