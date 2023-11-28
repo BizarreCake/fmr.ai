@@ -29,16 +29,68 @@ class KVBatch(Batch):
     attention_mask: Optional[Tensor] = None
 
 
+NeuronMeanVariance = collections.namedtuple('NeuronMeanVariance', ['mean', 'variance', 'k'])
+
+
 KVBankKey = Tuple[int, int]
 KVBankValueEntry = Tuple[int, int, float]
 KVBankData = Dict[KVBankKey, List[KVBankValueEntry]]
+KVBankMeanVariance = Dict[KVBankKey, NeuronMeanVariance]
 
-KVBankAverages = Dict[KVBankKey, float]
+
+NeutronKVRecord = collections.namedtuple('NeutronKVRecord', ['instance_idx', 'prefix_idx', 'value', 'z'])
 
 
 class KVResultBank:
-    def __init__(self, data: KVBankData):
+    def __init__(
+            self,
+            data: KVBankData,
+            mean_variance: KVBankMeanVariance,
+    ):
         self.data = data
+        self.mean_variance = mean_variance
+
+    def get(self, layer: int, neuron: int) -> List[NeutronKVRecord]:
+        key = (layer, neuron)
+        if key not in self.data:
+            return []
+        else:
+            return [
+                NeutronKVRecord(
+                    instance_idx=instance_idx,
+                    prefix_idx=prefix_idx,
+                    value=value,
+                    z=(value - self.mean_variance[key].mean) / self.mean_variance[key].variance,
+                )
+                for instance_idx, prefix_idx, value in self.data[key]
+            ]
+
+
+class MeanVarianceAccumulator:
+    """
+    Implements Welford's online algorithm for computing mean and variance.
+    """
+    def __init__(self, shape: Tuple[int, ...]):
+        self.shape = shape
+
+        self.mean = torch.zeros(shape)
+        self.variance = torch.zeros(shape)
+        self._k = 0
+
+    @property
+    def k(self):
+        return self._k
+
+    def process_one(self, tensor: Tensor):
+        if self._k == 0:
+            self.mean = tensor
+            self.variance = torch.zeros(self.shape)
+        else:
+            new_mean = self.mean + (tensor - self.mean) / (self._k + 1)
+            self.variance = self.variance + (tensor - self.mean) * (tensor - new_mean)
+            self.mean = new_mean
+
+        self._k += 1
 
 
 class KeyValueAnalysisAccumulator(AnalysisAccumulator):
@@ -55,6 +107,7 @@ class KeyValueAnalysisAccumulator(AnalysisAccumulator):
         self.max_entries = max_entries
 
         self._kv_bank_data = {}
+        self._layer_mean_vars: Dict[int, MeanVarianceAccumulator] = {}
 
         self._instance_idx = start_index
 
@@ -114,6 +167,11 @@ class KeyValueAnalysisAccumulator(AnalysisAccumulator):
                         truncated_instance = tensor[batch_index, :seq_len, :]
                         max_result = torch.max(truncated_instance, dim=0)
 
+                        # update mean and variance
+                        if layer_idx not in self._layer_mean_vars:
+                            self._layer_mean_vars[layer_idx] = MeanVarianceAccumulator(truncated_instance.size()[-1:])
+                        self._layer_mean_vars[layer_idx].process_one(torch.sum(truncated_instance, dim=0) / seq_len)
+
                         for neuron_index, (prefix_index, mem_coeff), in enumerate(zip(max_result.indices, max_result.values)):
                             key = (layer_idx, neuron_index)
                             value = (
@@ -135,7 +193,25 @@ class KeyValueAnalysisAccumulator(AnalysisAccumulator):
         self._instance_idx += batch_size
 
     def result(self) -> KVResultBank:
-        return KVResultBank(self._kv_bank_data)
+        with torch.no_grad():
+            # compile mean and variance
+            mean_variance = {}
+            for layer_idx, accumulator in self._layer_mean_vars.items():
+                shape = accumulator.shape
+                assert len(shape) == 1
+
+                layer_mean = accumulator.mean.cpu()
+                layer_variance = accumulator.variance.cpu()
+
+                for i in range(shape[0]):
+                    key = (layer_idx, i)
+                    mean_variance[key] = NeuronMeanVariance(
+                        mean=layer_mean[i].item(),
+                        variance=layer_variance[i].item(),
+                        k=accumulator.k,
+                    )
+
+        return KVResultBank(self._kv_bank_data, mean_variance)
 
 
 class KeyValueAnalysisTracker(AnalysisTracker):
