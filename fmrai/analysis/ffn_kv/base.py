@@ -2,14 +2,17 @@ import collections
 import contextlib
 import functools
 import operator
+from abc import ABC
 from dataclasses import dataclass
 from enum import IntEnum, auto
 from typing import Optional, List, Iterable, Set, Deque, Tuple, Dict
+from pydantic import BaseModel
 
 import torch
 from torch import Tensor
 
-from fmrai.analysis.common import AnalysisTracker, Analyzer, AnalysisAccumulator, Batch
+from fmrai.analysis.common import AnalysisTracker, Analyzer, AnalysisAccumulator, Batch, TokenizationHelper, \
+    DatapointTokenization
 from fmrai.analysis.structure import FindTransformerFFN, TransformerFFNInstance
 from fmrai.fmrai import get_fmrai
 from fmrai.instrument import unwrap_proxy
@@ -38,10 +41,10 @@ KVBankData = Dict[KVBankKey, List[KVBankValueEntry]]
 KVBankMeanVariance = Dict[KVBankKey, NeuronMeanVariance]
 
 
-NeutronKVRecord = collections.namedtuple('NeutronKVRecord', ['instance_idx', 'prefix_idx', 'value', 'z'])
+NeuronKVRecord = collections.namedtuple('NeutronKVRecord', ['instance_idx', 'prefix_idx', 'value', 'z'])
 
 
-class KVResultBank:
+class KVResults:
     def __init__(
             self,
             data: KVBankData,
@@ -49,18 +52,25 @@ class KVResultBank:
     ):
         self.data = data
         self.mean_variance = mean_variance
+        self.tokenization: Optional[Dict[int, DatapointTokenization]] = None
 
-    def get(self, layer: int, neuron: int) -> List[NeutronKVRecord]:
+    def keys(self):
+        return self.data.keys()
+
+    def get(self, layer: int, neuron: int) -> List[NeuronKVRecord]:
         key = (layer, neuron)
         if key not in self.data:
             return []
         else:
             return [
-                NeutronKVRecord(
+                NeuronKVRecord(
                     instance_idx=instance_idx,
                     prefix_idx=prefix_idx,
                     value=value,
-                    z=(value - self.mean_variance[key].mean) / self.mean_variance[key].variance,
+                    z=(
+                        (value - self.mean_variance[key].mean) / self.mean_variance[key].variance
+                        if self.mean_variance[key].variance > 0 else 0
+                    ),
                 )
                 for instance_idx, prefix_idx, value in self.data[key]
             ]
@@ -192,7 +202,7 @@ class KeyValueAnalysisAccumulator(AnalysisAccumulator):
 
         self._instance_idx += batch_size
 
-    def result(self) -> KVResultBank:
+    def result(self) -> KVResults:
         with torch.no_grad():
             # compile mean and variance
             mean_variance = {}
@@ -211,7 +221,7 @@ class KeyValueAnalysisAccumulator(AnalysisAccumulator):
                         k=accumulator.k,
                     )
 
-        return KVResultBank(self._kv_bank_data, mean_variance)
+        return KVResults(self._kv_bank_data, mean_variance)
 
 
 class KeyValueAnalysisTracker(AnalysisTracker):
@@ -265,11 +275,12 @@ class KeyValueAnalysisTracker(AnalysisTracker):
 
 
 class KeyValueAnalyzer(Analyzer):
-    def __init__(self, strategy: KeyValueMaxSearchStrategy):
+    def __init__(self, strategy: KeyValueMaxSearchStrategy, *, max_entries: int = 10):
         super().__init__()
         self.strategy = strategy
 
         self._start_index = 0
+        self._max_entries = max_entries
 
     @property
     def start_index(self):
@@ -290,7 +301,55 @@ class KeyValueAnalyzer(Analyzer):
             ffns=self._tracker.ffns,
             strategy=self.strategy,
             start_index=self._start_index,
+            max_entries=self._max_entries,
         )
 
-    def analyze(self):
-        pass
+    def analyze(self, *, tokenizer: Optional[TokenizationHelper] = None):
+        result: KVResults = self._accumulator.result()
+
+        if tokenizer is not None:
+            # gather sentence ids
+            sentence_ids = set()
+            for layer, neuron in result.keys():
+                for record in result.get(layer, neuron):
+                    sentence_ids.add(record.instance_idx)
+
+            # tokenize using helper
+            result.tokenization = tokenizer.tokenize_many(sentence_ids)
+
+        return result
+
+
+class KVStats(BaseModel):
+    num_layers: int
+    num_key_neurons_per_layer: Dict[int, int]
+    # num_significant_per_layer: Dict[int, int]
+
+
+class KVKeyHeatmap(BaseModel):
+    layer: int
+    sigma: float
+    num_neurons: int
+    heatmap: List[int]
+
+
+class KVKeySentence(BaseModel):
+    sentence_id: int
+    prefix_len: int
+    words: Optional[List[str]]
+    value: float
+    z: float
+
+
+class KVRepository(ABC):
+    def stats(self) -> KVStats:
+        raise NotImplementedError()
+
+    def add(self, results: KVResults):
+        raise NotImplementedError()
+
+    def key_heatmap(self, layer: int, sigma: float = 3.0) -> KVKeyHeatmap:
+        raise NotImplementedError()
+
+    def key_sentences(self, layer: int, neuron: int, limit: Optional[int] = None) -> List[KVKeySentence]:
+        raise NotImplementedError()

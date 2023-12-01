@@ -1,23 +1,20 @@
 import json
 import os.path
-from typing import Optional
 
 import requests
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-from fmrai.analysis.attention import extract_attention_values, AttentionHeadClusteringResult
-from fmrai.analysis.structure import find_multi_head_attention
-from fmrai.logging import get_tensor_info_path, get_log_dir, get_computation_map_dir, get_attention_head_plots_dir
-from fmrai.tracker import NiceComputationGraph, LazyComputationMap, OrdinalTensorId
+from fmrai.logging import get_tensor_info_path
 from server.agent_comm import find_agent_host
-from server.entrypoints.web import models
-from server.entrypoints.web.routers.projects import router as projects_router
 from server.entrypoints.web.routers.analysis import router as analysis_router
+from server.entrypoints.web.routers.projects import router as projects_router
+from server.entrypoints.web.routers.kv import router as kv_router
 
 app = FastAPI()
 app.include_router(projects_router)
 app.include_router(analysis_router)
+app.include_router(kv_router)
 
 
 def _init_model():

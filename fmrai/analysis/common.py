@@ -2,7 +2,7 @@ import collections
 import contextlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Deque, Iterable
+from typing import Optional, Deque, Iterable, List, Dict
 
 import networkx as nx
 from pydantic import BaseModel
@@ -141,3 +141,35 @@ class DatasetInfo(BaseModel):
     name: str
     text_column: Optional[str] = None
     description: Optional[str] = None
+
+
+@dataclass
+class DatapointTokenization:
+    words: List[str]
+
+
+class TokenizationHelper(ABC):
+    def tokenize(self, index: int) -> DatapointTokenization:
+        raise NotImplementedError()
+
+    def tokenize_many(self, indices: Iterable[int]) -> Dict[int, DatapointTokenization]:
+        if not isinstance(indices, set):
+            indices = set(indices)
+        return {index: self.tokenize(index) for index in indices}
+
+
+class HFTokenizationHelper(TokenizationHelper):
+    def __init__(self, dataset, tokenizer):
+        self.dataset = dataset
+        self.tokenizer = tokenizer
+
+    def tokenize(self, index: int) -> DatapointTokenization:
+        datapoint = self.dataset[index]
+
+        # filter out padding tokens using attention mask
+        input_ids = datapoint['input_ids']
+        attention_mask = datapoint['attention_mask']
+        input_ids = [input_ids[i] for i in range(len(input_ids)) if attention_mask[i] == 1]
+
+        words = self.tokenizer.convert_ids_to_tokens(input_ids)
+        return DatapointTokenization(words=words)
